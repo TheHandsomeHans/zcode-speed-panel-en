@@ -1,23 +1,23 @@
-// 浏览器预览模式：模拟 ZCode 的 model-io 调用流，便于无 Tauri 环境下预览 UI
+// Browser preview mode: simulates ZCode's model-io call stream so the UI can be previewed without Tauri
 
 import type { ModelStatsPayload } from "./model_stats";
 
-/** 分任务实时明细（多任务并发时才有多个）：一个 CLI 进程 = 一行 */
+/** Per-task realtime details (multiple only when tasks run concurrently): one CLI process = one row */
 export interface TaskStat {
   pid: number;
-  /** 归属的进行中会话 id（空 = 尚未归属的流式进程） */
+  /** Owning in-progress session id (empty = streaming process not yet attributed) */
   session: string;
-  /** 该进程承载的进行中会话数（≥2 = 同进程多任务，速度为合计） */
+  /** Number of in-progress sessions carried by this process (≥2 = multiple tasks in one process, speed is the combined total) */
   nSessions: number;
   tps: number;
   streaming: boolean;
 }
 
-/** ZCode 连接明细行（与后端 ConnStat 同形）：两组均为 ZCode 自身进程 */
+/** ZCode connection detail row (same shape as the backend's ConnStat): both groups are ZCode's own processes */
 export interface ConnStat {
   remote: string;
   pid: number;
-  /** 进程类型标签：CLI 会话进程 / 主进程 / 渲染进程 / GPU 进程 / 工具进程 / 崩溃报告进程 */
+  /** Process type label: CLI session process / main process / render process / GPU process / utility process / crash reporter process */
   proc: string;
 }
 
@@ -33,26 +33,26 @@ export interface Snapshot {
   sessionsToday: number;
   isLive: boolean;
   isEstimating: boolean;
-  /** 调用已开始但首字节未到（TTFT）：显示"统计中…"提示而非估算值 */
+  /** Call started but first byte not yet arrived (TTFT): shows the "Collecting…" notice instead of an estimate */
   isStarting: boolean;
-  /** 实测流式已开始但 30s 滑窗未填满（显示"统计中"） */
+  /** Measured streaming started but the 30s sliding window isn't full yet (shows "Collecting") */
   ramping: boolean;
-  /** 近 10 分钟已完成调用的真实速度（落盘口径） */
+  /** Real speed of calls completed in the last 10 minutes (on-disk basis) */
   windowTps: number;
-  /** 最近一次已完成调用的真实速度（落盘口径），当前速度卡右上角小表用 */
+  /** Real speed of the most recent completed call (on-disk basis), used by the current speed card's top-right badge */
   lastCallTps: number;
-  /** 近 7 天最高单调用速度（窗口与准入口径见 metrics.rs；mock 给个合理峰值） */
+  /** Fastest single call in the last 7 days (window and admission criteria: see metrics.rs; the mock uses a plausible peak) */
   histMaxTps: number;
-  /** 近 7 天平均速度（窗口内调用 Σeff ÷ Σgen，与今日平均同口径） */
+  /** Average speed over the last 7 days (calls in window Σeff ÷ Σgen, same basis as today's average) */
   histAvgTps: number;
   liveSource: string;
   lastActivityMs: number;
   nowMs: number;
   rolloutDir: string;
   spark: number[];
-  /** 并发任务分进程明细（≥2 个时前端显示任务列表） */
+  /** Concurrent per-process task details (frontend shows the task list when ≥2) */
   tasks: TaskStat[];
-  // ---- 网络流量监控（netio.rs；浏览器预览为模拟值） ----
+  // ---- Network traffic monitoring (netio.rs; simulated values in browser preview) ----
   netAvailable: boolean;
   netUpBps: number;
   netDownBps: number;
@@ -63,7 +63,7 @@ export interface Snapshot {
   netConnsAvailable: boolean;
   netCliConns: number;
   netAppConns: number;
-  /** 连接明细（每条含远端 + 归属 pid + 进程类型标签） */
+  /** Connection details (each with remote endpoint + owning pid + process type label) */
   netCliConnList: ConnStat[];
   netAppConnList: ConnStat[];
 }
@@ -75,11 +75,11 @@ interface MockCall {
   input: number;
   cache: number;
   session: string;
-  /** 管道静默调用：整段无增量字节，走 ≈ 估算显示 */
+  /** Pipe-silent call: no incremental bytes for the whole segment, displayed as a ≈ estimate */
   silent: boolean;
-  /** 并发任务期间第二个进程的固定速度（0 = 单任务；按调用固定，不逐拍重抽） */
+  /** Fixed speed of the second process during concurrent tasks (0 = single task; fixed per call, not re-rolled each tick) */
   second: number;
-  /** 模型名（模型详情视图按此分组；与真实库的 model_id 同角色） */
+  /** Model name (the model details view groups by it; same role as the real library's model_id) */
   model: string;
 }
 
@@ -90,12 +90,12 @@ const BUCKET = 10_000;
 
 const rnd = (a: number, b: number) => a + Math.random() * (b - a);
 
-/** 模拟模型池：主模型高频，两个次模型低频（模型详情视图的多条折线演示） */
+/** Simulated model pool: the main model at high frequency, two secondary models at low frequency (demonstrates multiple lines in the model details view) */
 const MODEL_POOL = ["claude-sonnet-4-5", "claude-sonnet-4-5", "glm-4.6", "deepseek-v3.2"];
 
 let calls: MockCall[] = [];
 let sessionNo = 1;
-// 网络监控模拟状态：当日累计单调累加
+// Network monitor simulation state: today's totals accumulate monotonically
 let netUpToday = rnd(2e8, 6e8);
 let netDownToday = rnd(1e9, 4e9);
 
@@ -104,7 +104,7 @@ function newCall(now: number): MockCall {
   const duration = Math.exp(rnd(Math.log(12000), Math.log(180000)));
   const tps = rnd(18, 70);
   const output = Math.max(60, Math.round((duration / 1000) * tps));
-  // usage 库语义:cache_read 是 input 的子集,命中率常态 90%+
+  // usage library semantics: cache_read is a subset of input, the hit rate is normally 90%+
   const input = Math.round(rnd(15000, 60000));
   return {
     completed: now + duration,
@@ -159,7 +159,7 @@ function snapshot(now: number, pending: MockCall | null): Snapshot {
     dur += d;
     if (c.completed >= last) {
       last = c.completed;
-      lastTps = c.output / (d / 1000); // 与后端一致：取完成时刻最晚一条的 eff ÷ 纯生成时长
+      lastTps = c.output / (d / 1000); // matches the backend: use the call with the latest completion time, eff ÷ pure generation time
     }
     sessions.add(c.session);
     if (c.completed >= now - WINDOW) {
@@ -172,8 +172,8 @@ function snapshot(now: number, pending: MockCall | null): Snapshot {
       bucketDur[BUCKETS - 1 - slot] += d;
     }
   }
-  // 门控模型与后端一致：以进行中的调用（pending）为准。
-  // 模拟 TTFT ~2.5s：启动期显示"统计中…"；约 1/5 的调用为管道静默（整段 ≈ 估算）
+  // Gating model matches the backend: the in-progress call (pending) decides.
+  // Simulated TTFT ~2.5s: the starting phase shows "Collecting…"; about 1 in 5 calls is pipe-silent (whole segment shown as a ≈ estimate)
   const pendingStart = pending ? pending.completed - pending.duration : 0;
   const ageSec = pending ? (now - pendingStart) / 1000 : Infinity;
   const isStarting = !!pending && ageSec < 2.5 && !pending.silent;
@@ -186,8 +186,8 @@ function snapshot(now: number, pending: MockCall | null): Snapshot {
         ? wOut / (wDur / 1000)
         : 0
       : 0;
-  // 模拟并发任务：部分调用期间另有第二个 CLI 进程在流式——当前速度为聚合
-  // 总吞吐，分任务列表显示两行（预览多任务 UI；第二任务速度按调用固定）
+  // Simulated concurrent tasks: during some calls a second CLI process streams concurrently — the current speed is the
+  // aggregate throughput and the task list shows two rows (previews the multi-task UI; the second task's speed is fixed per call)
   const ownTps = currentTps;
   const secondTps = pending && pending.second > 0 && isLive ? pending.second : 0;
   const currentAgg = currentTps + secondTps;
@@ -230,39 +230,39 @@ function snapshot(now: number, pending: MockCall | null): Snapshot {
     ramping: isLive && ageSec < 30,
     windowTps: wDur > 0 ? wOut / (wDur / 1000) : 0,
     lastCallTps: lastTps,
-    // 近 7 天统计 mock：峰值为今日峰值 × 1.2、7 天平均略低于今日平均（多日稀释）
+    // Last-7-days mock stats: peak = today's peak × 1.2, 7-day average slightly below today's average (diluted across days)
     histMaxTps: Math.max(...spark, lastTps) * 1.2 || 312,
     histAvgTps: dur > 0 ? (out / (dur / 1000)) * 0.92 : 0,
     liveSource: isStarting || isLive ? "io" : isEstimating ? "window" : "idle",
     lastActivityMs: last,
     nowMs: now,
-    rolloutDir: "（浏览器预览 · 模拟数据）",
+    rolloutDir: "(Browser preview · simulated data)",
     spark,
     tasks,
-    // 网络监控模拟：速度随调用活动起伏，当日累计单调累加
+    // Network monitor simulation: speed rises and falls with call activity, today's totals accumulate monotonically
     netAvailable: true,
     netUpBps: isLive ? rnd(20_000, 90_000) : rnd(0, 3_000),
     netDownBps: isLive ? rnd(80_000, 400_000) : rnd(0, 8_000),
     netUpToday: netUpToday,
     netDownToday: netDownToday,
-    // 与后端同口径：上传按未缓存提示（input−cache_read）×5，下载按输出 ×400
+    // Same basis as the backend: upload = uncached prompt (input−cache_read) × 5, download = output × 400
     netSessUpToday: Math.max(0, input - cache) * 5,
     netSessDownToday: out * 400,
     netConnsAvailable: true,
     netCliConns: isLive ? 2 : 1,
     netAppConns: 1,
-    // 连接明细模拟：两组都是 ZCode 自身进程（CLI / Electron 壳），按进程标注
+    // Connection details simulation: both groups are ZCode's own processes (CLI / Electron shell), labeled per process
     netCliConnList: [
-      { remote: "61.170.79.24:443", pid: 41092, proc: "CLI 会话进程" },
-      { remote: "61.170.79.31:443", pid: 41092, proc: "CLI 会话进程" },
+      { remote: "61.170.79.24:443", pid: 41092, proc: "CLI Session" },
+      { remote: "61.170.79.31:443", pid: 41092, proc: "CLI Session" },
     ],
-    netAppConnList: [{ remote: "61.151.230.245:443", pid: 18104, proc: "主进程" }],
+    netAppConnList: [{ remote: "61.151.230.245:443", pid: 18104, proc: "Main Process" }],
   };
 }
 
-/** 模型详情视图的模拟数据：把调用流按模型 × 绝对墙钟槽聚合（与后端
- *  aggregate_model_stats 同口径：slot = now÷bucketMs − completed÷bucketMs，
- *  90 桶、四档窗口与曲线共用、越界丢弃、桶 tps = Σeff ÷ Σgen_s），供无 Tauri 预览 */
+/** Mock data for the model details view: aggregates the call stream by model × absolute wall-clock slot (same semantics as the
+ *  backend's aggregate_model_stats: slot = now÷bucketMs − completed÷bucketMs, 90 buckets, the four windows are shared with
+ *  the chart, out-of-range slots dropped, bucket tps = Σeff ÷ Σgen_s), for preview without Tauri */
 export function mockModelStats(windowMin: number): ModelStatsPayload {
   const win = [15, 60, 360, 1440].reduce((a, b) => (Math.abs(b - windowMin) < Math.abs(a - windowMin) ? b : a));
   const now = Date.now();
@@ -318,7 +318,7 @@ export function startMock(onData: (s: Snapshot) => void) {
     const t = Date.now();
     if (pending && t >= pending.completed) {
       calls.push(pending);
-      // 只保留最近 30 分钟
+      // Keep only the last 30 minutes
       const cutoff = t - 30 * 60 * 1000;
       calls = calls.filter((c) => c.completed >= cutoff);
       pending = null;
@@ -327,7 +327,7 @@ export function startMock(onData: (s: Snapshot) => void) {
     if (!pending && t >= nextStart) {
       pending = newCall(t);
     }
-    // 网络监控模拟：累计按模拟速度推进
+    // Network monitor simulation: totals advance at the simulated speed
     netUpToday += rnd(500, 120_000) * 0.4;
     netDownToday += rnd(2_000, 500_000) * 0.4;
     onData(snapshot(t, pending));

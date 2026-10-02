@@ -1,5 +1,5 @@
 :root {
-  color-scheme: dark; /* 原生控件（下拉弹层、滚动条）按深色渲染 */
+  color-scheme: dark; /* native controls (dropdown popups, scrollbars) render dark */
   --bg: #0b0f17;
   --card: rgba(255, 255, 255, 0.032);
   --card-border: rgba(255, 255, 255, 0.07);
@@ -17,8 +17,9 @@
   padding: 0;
 }
 
-/* hidden 属性必须压过任何 display 规则（.net-conns 等块是 display:flex，
-   作者样式会盖掉 UA 的 [hidden]{display:none}，导致"隐藏"元素仍占位出点） */
+/* the hidden attribute must outrank any display rule (blocks like .net-conns are
+   display:flex; author styles would beat the UA's [hidden]{display:none}, leaving
+   "hidden" elements occupying space) */
 [hidden] {
   display: none !important;
 }
@@ -51,7 +52,7 @@ header {
   user-select: none;
 }
 
-/* 自绘标题栏的窗口控制组（无边框窗口）：— 最小化 / ▢ 最大化 / ✕ 收起为悬浮窗 */
+/* custom title-bar window controls (frameless window): — minimize / ▢ maximize / ✕ collapse to floating window */
 #win-controls {
   display: inline-flex;
   margin-left: 10px;
@@ -81,9 +82,10 @@ header {
   color: #fff;
 }
 
-/* mac：原生 Overlay 标题栏（真·系统交通灯：红关/黄最小化/绿全屏，原生
-   悬停符号与动画）。自绘控制组整体隐藏；顶栏左侧留位避让原生灯
-  （三灯约占左上 78×28pt，2026-09-19 起不再自绘仿品） */
+/* mac: native Overlay title bar (true system traffic lights: red close / yellow
+   minimize / green zoom, with native hover glyphs and animation). The custom
+   control group is hidden entirely; the header pads left to clear the native
+   lights (about 78×28pt top-left; no self-drawn imitations since 2026-09-19) */
 body.platform-mac #win-controls {
   display: none;
 }
@@ -157,8 +159,9 @@ main {
   gap: 14px;
   padding: 4px 20px 16px;
   min-height: 0;
-  /* 兜底：内容超出窗口高度（小窗/任务卡+网络卡同开）时可滚动，
-   * 不再被 body 的 overflow:hidden 裁掉底部的曲线卡 */
+  /* fallback: scroll when content exceeds the window height (small window or
+   * task card + network card both shown) instead of body's overflow:hidden
+   * clipping the bottom chart card */
   overflow-y: auto;
 }
 
@@ -176,7 +179,7 @@ main {
 }
 
 .gauge-card {
-  position: relative; /* 角标小表（#g-last）绝对定位到卡片右上角 */
+  position: relative; /* corner badge gauge (#g-last) absolutely positioned at the card's top-right */
   padding: 12px 10px 10px;
   display: flex;
   flex-direction: column;
@@ -190,11 +193,13 @@ main {
   height: 210px;
 }
 
-/* 仪表卡顶角的角标小圆环（BadgeGauge）：小而独立，不占主表布局；
-   默认右上角（当前速度卡"上轮"、今日平均卡"历史"），今日平均卡的
-   "历史最高"用 .corner-left 放左上角对称。尺寸受卡片顶角留白限制
-   （窗口最小宽度 720 时主表弧线已贴近顶角）；左上角与 ⟳ 按钮不同卡、
-   无冲突。同类小环亦用于迷你仪表悬浮窗 */
+/* corner badge ring at the gauge card's top corner (BadgeGauge): small and
+   standalone, keeps the main gauge layout untouched; top-right by default
+   ("last round" on the current-speed card, "history" on the today-average card,
+   whose "all-time high" mirrors it top-left via .corner-left). Size is bounded
+   by the card's top-corner padding (at min window width 720 the main gauge arc
+   already nears the corner); the top-left ⟳ button is on another card, so no
+   conflict. The same small ring is also used in the mini gauge floating window */
 .gauge-card canvas.corner-gauge {
   position: absolute;
   top: 8px;
@@ -203,18 +208,22 @@ main {
   height: 56px;
 }
 
-/* 今日平均卡左上角的"历史最高速度"小圆环：与右上角"历史平均"对称 */
+/* "all-time high speed" badge ring at the today-average card's top-left: mirrors the top-right "history average" */
 .gauge-card canvas.corner-gauge.corner-left {
   right: auto;
   left: 10px;
 }
 
-/* 当前速度卡左上角"重新校准"图标按钮（与右上角"上轮"角标呼应；宽度收窄，
-   避免压住画布顶部居中的表名文字，最小窗口宽 720 时表名左缘约 62px）。
-   图标为内联 SVG 精确居中——⟳ 一类符号字形在字体里墨迹相对字宽偏心。
-   选择器须带 .ghost-btn 提高特异性：后者在文件后部又声明了 padding，
-   同权重按源序会覆盖这里的 padding: 0——内容盒被 10px 水平内边距挤剩 4px 宽，
-   grid 轨道按图标宽 14px 向右溢出内容盒，图标整体右偏约 5 逻辑像素 */
+/* "recalibrate" icon button at the current-speed card's top-left (mirrors the
+   "last round" corner badge top-right; width narrowed so it won't cover the
+   gauge title centered atop the canvas — its left edge is ~62px at min window
+   width 720). The icon is an inline SVG centered exactly — ⟳-style glyph ink
+   sits off-center relative to its advance width. The selector must include
+   .ghost-btn for higher specificity: .ghost-btn re-declares padding later in
+   the file, and equal weight + source order would override this padding: 0 —
+   the 10px horizontal padding squeezes the content box to 4px wide, the grid
+   track overflows right by the 14px icon width, shifting the icon about 5
+   logical pixels right */
 .ghost-btn.recal-btn {
   position: absolute;
   top: 8px;
@@ -231,7 +240,7 @@ main {
   display: block;
 }
 
-/* 重校准完成反馈：⟳ 换成绿色 ✓（main.ts flashRecal 切 done 类），1.5s 后复原 */
+/* recalibration success feedback: ⟳ swaps to a green ✓ (main.ts flashRecal toggles the done class), reverts after 1.5s */
 .recal-btn .recal-done {
   display: none;
 }
@@ -288,7 +297,7 @@ main {
   min-height: 0;
 }
 
-/* 并发任务明细卡：多任务并发时出现在仪表行与曲线之间，单任务时隐藏 */
+/* concurrent task detail card: appears between the gauge row and the chart when multiple tasks run in parallel, hidden for a single task */
 .task-card {
   padding: 10px 16px 8px;
 }
@@ -325,14 +334,15 @@ main {
   font-weight: 600;
 }
 
-/* ---- 网速监控卡：整机速度 + 会话上传估算 ---- */
+/* ---- network monitor card: system-wide speed + session upload estimate ---- */
 .net-card {
   padding: 12px 16px 10px;
   flex: none;
 }
 
-/* 单行横排：速度居左、进程连接数居中、当日累计居右（conns 与 today 各持
- * 一个 margin-left:auto，空余空间在两处均分 → 中间/最右就位）；窄窗口自动换行 */
+/* one horizontal row: speed left, per-process connection count center, daily
+ * total right (conns and today each hold a margin-left:auto, splitting the free
+ * space in two → middle / far-right placement); wraps on narrow windows */
 .net-body {
   min-width: 0;
   display: flex;
@@ -414,7 +424,7 @@ main {
 }
 
 .net-today {
-  margin-left: auto; /* 与 conns 的 auto 均分空隙：conns 居中、本块靠最右 */
+  margin-left: auto; /* splits the free space with conns' auto: conns centered, this block far right */
   display: flex;
   flex-direction: column;
   gap: 3px;
@@ -458,7 +468,7 @@ footer span {
   color: var(--dim);
 }
 
-/* ---- 悬浮窗 ---- */
+/* ---- Floating window ---- */
 
 .ghost-btn {
   background: rgba(255, 255, 255, 0.06);
@@ -475,7 +485,7 @@ footer span {
   background: rgba(255, 255, 255, 0.12);
 }
 
-/* 自绘下拉框：原生 select 的弹层跟随系统浅色主题（灰字白底），深色界面里看不清，弃用 */
+/* custom dropdown: the native select popup follows the system light theme (gray text on white), unreadable in a dark UI — dropped */
 .dropdown {
   position: relative;
 }
@@ -524,7 +534,7 @@ footer span {
   background: rgba(34, 211, 238, 0.1);
 }
 
-/* 收起为悬浮窗的主按钮：高亮渐变实底，与旁边的幽灵按钮明显区分 */
+/* main button for collapsing to the floating window: bright gradient fill, clearly distinct from the neighboring ghost buttons */
 .accent-btn {
   background: linear-gradient(135deg, #22d3ee, #0ea5e9);
   border: 1px solid rgba(255, 255, 255, 0.22);
@@ -539,7 +549,7 @@ footer span {
   box-shadow: 0 2px 18px rgba(34, 211, 238, 0.5);
 }
 
-/* 悬浮窗/桌宠右键菜单 */
+/* floating window / desktop pet context menu */
 #float-menu {
   display: none;
   position: fixed;
@@ -573,8 +583,10 @@ footer span {
   background: rgba(248, 113, 113, 0.18);
 }
 
-/* "常显上轮均速"勾选小方框：桌宠右键菜单项与主窗口顶栏开关共用（.pet-last-on = 勾选态）。
-   原生 checkbox 与 select 一样由 WebView2 按浅色系统主题渲染，深色界面里不可读，须自绘 */
+/* checkbox box for "always show last-round average": shared by the desktop pet
+   context-menu item and the main window header toggle (.pet-last-on = checked).
+   Like select, the native checkbox is rendered by WebView2 with the light system
+   theme, unreadable in a dark UI, so it must be drawn manually */
 .pet-chk {
   flex: none;
   box-sizing: border-box;
@@ -602,9 +614,11 @@ footer span {
   transform: rotate(40deg);
 }
 
-/* 菜单项横向排列。须用双 ID 压过 `#float-menu button` 的 all:unset + display:block
-   （单 ID 选择器特异性 (1,0,0) 打不过 (1,0,1)，flex 失效 → .pet-chk 退化行内零尺寸、勾选框错位）；
-   仅桌宠样式显示，隐藏规则同理要压过双 ID flex */
+/* menu item laid out horizontally. Two IDs are needed to beat `#float-menu
+   button`'s all:unset + display:block (a single-ID selector's specificity
+   (1,0,0) loses to (1,0,1), flex fails → .pet-chk degrades to a zero-size
+   inline box and the checkbox misaligns); shown only in desktop-pet style, and
+   the hiding rule must likewise beat the two-ID flex */
 #float-menu #float-menu-pet-last {
   display: flex;
   align-items: center;
@@ -615,8 +629,10 @@ body.float-mode:not(.style-pet) #float-menu #float-menu-pet-last {
   display: none;
 }
 
-/* 主窗口顶栏开关：仅完整面板 + 悬浮窗样式为桌宠时出现（悬浮窗走右键菜单勾选）。
-   <button> 元素天然落在顶栏拖动/双击的排除选择器（button, select, input, .dropdown）里 */
+/* main window header toggle: shown only on the full panel when the floating
+   window style is the desktop pet (the floating window uses the context-menu
+   checkbox). A <button> element naturally falls under the header drag/double-click
+   exclusion selector (button, select, input, .dropdown) */
 #pet-last-toggle {
   display: none;
   align-items: center;
@@ -680,16 +696,20 @@ body.float-mode.style-pill #float-pill {
   padding: 0 12px;
 }
 
-/* 主环占左侧 116px，右侧留给"上轮"小环（窗口 148×118，见 main.rs FLOAT_GAUGE_SIZE）；
-   主环半径由画布尺寸推出，收窄画布宽度即同时缩小主环与速度数字 */
+/* the main ring takes the left 116px, the right side is left for the "last
+   round" badge ring (window 148×118, see main.rs FLOAT_GAUGE_SIZE); the main
+   ring radius derives from the canvas size, so narrowing the canvas width
+   shrinks both the main ring and the speed number */
 #mini-gauge {
   width: 116px;
   height: 100%;
 }
 
-/* 仪表悬浮窗右上角的上轮小环（与完整面板当前速度卡的角标同款，尺寸随窗口缩小）；
-   top/right 对称留白，不贴窗边（原 right:4 太靠边）；top:8px 同时是主环弧底
-   距窗口下边的距离（gauges.ts MiniGauge 锚定），两处须一致 */
+/* last-round badge ring at the gauge floating window's top-right (same style as
+   the full panel's current-speed card corner badge, scaled down with the window);
+   top/right padding is symmetric, not flush against the edge (the old right:4
+   was too close); top:8px is also the distance from the main ring arc's bottom
+   to the window bottom (anchored by gauges.ts MiniGauge), so both must match */
 .float-badge {
   position: absolute;
   top: 8px;
@@ -704,8 +724,9 @@ body.float-mode.style-pill #float-pill {
   display: block;
 }
 
-/* 胶囊数值区：第一行实时速度，第二行上轮均速（落盘口径）；
-   两行各自居中，整组随 justify-content 在胶囊内水平居中 */
+/* pill value area: first row live speed, second row last-round average
+   (persisted measurement methodology); the two rows center individually, and
+   the group centers horizontally in the pill via justify-content */
 #float-val {
   display: flex;
   flex-direction: column;
@@ -736,7 +757,7 @@ body.float-mode.style-pill #float-pill {
   font-size: 14px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
-  color: var(--dim); /* 有数据时按速度分档着色（main.ts） */
+  color: var(--dim); /* tinted by speed tier when data exists (main.ts) */
 }
 
 #float-approx {
@@ -785,8 +806,10 @@ body.float-mode:not(.live):not(.est) #float-tps {
   opacity: 1;
 }
 
-/* mac 引导提示：窗口从隐藏到显示时提醒应用常驻菜单栏（无 Dock 图标，
-   Windows 下后端不发事件，前端永不显示）。顶部小箭头指向屏幕菜单栏方向 */
+/* mac onboarding hint: when the window goes from hidden to shown, remind that
+   the app lives in the menu bar (no Dock icon; on Windows the backend never
+   emits the event, so the frontend never shows it). The small top arrow points
+   toward the screen's menu bar */
 #tray-hint {
   position: fixed;
   top: 56px;
@@ -812,7 +835,7 @@ body.float-mode:not(.live):not(.est) #float-tps {
   pointer-events: auto;
 }
 
-/* 悬浮窗/桌宠模式窗口只有 72~200px 高，放不下提示且会被裁剪：不显示 */
+/* floating window / desktop pet mode windows are only 72~200px tall — too small for the hint and it would clip: don't show */
 body.float-mode #tray-hint {
   display: none;
 }
@@ -830,9 +853,9 @@ body.float-mode #tray-hint {
   transform: rotate(45deg);
 }
 
-/* ---- 模型速度趋势详情弹窗 ---- */
+/* ---- Model speed trend detail modal ---- */
 
-/* 图表卡片标题右侧：峰值 + 模型详情入口按钮 */
+/* right of the chart card title: peak value + model detail entry button */
 .chart-head-right {
   display: flex;
   align-items: center;
@@ -840,14 +863,18 @@ body.float-mode #tray-hint {
   font-variant-numeric: tabular-nums;
 }
 
-/* ---- 曲线卡视图分段拨杆与模型详情视图（与整体输出速度曲线互斥，main.ts 切换） ---- */
+/* ---- chart card view segmented toggle and model detail view (mutually exclusive with the overall output speed curve, switched in main.ts) ---- */
 
-/* 分段拨杆：文字分居左右，色块滑到激活一侧（像开关）。两侧均为 4 字文案
-   等宽，滑块取半宽平移即可；发丝描边走 inset box-shadow，不占布局——
-   滑块宽度按 padding 盒的 50% 计算，左右各留 2px 边距恰好对称。
-   必须显式 border: none + appearance: none：这是裸 <button>，WebView2 会
-   套系统浅色主题的原生按钮浮雕边（常态上亮下暗、按压反转成下亮上暗），
-   在深色界面里是一圈刺白的边——与 key-rules #8 的原生控件同理，一律自绘 */
+/* segmented toggle: labels sit left and right, the color block slides to the
+   active side (like a switch). Both labels are equal-width 4-character texts,
+   so the knob just translates by half the width; the hairline stroke uses an
+   inset box-shadow and takes no layout space — knob width is 50% of the padding
+   box, with 2px margins on each side for exact symmetry.
+   border: none + appearance: none must be set explicitly: this is a bare
+   <button>, and WebView2 applies the native light-theme button bevel (normally
+   lit on top and dark on the bottom, inverted when pressed) — a glaring white
+   ring in a dark UI, same rationale as the native controls in key-rules #8:
+   always draw it manually */
 .view-toggle {
   appearance: none;
   border: none;
@@ -874,8 +901,9 @@ body.float-mode #tray-hint {
   left: 2px;
   width: calc(50% - 2px);
   border-radius: 999px;
-  /* 激活色块走主题同款淡青底 + 青描边（同下拉选中态/图例 chip 选中），
-     不用实色高亮——与其它按钮的克制风格一致 */
+  /* the active block uses the theme's pale cyan fill + cyan stroke (same as the
+     dropdown selected state / legend chip selected), not a solid highlight —
+     consistent with the restrained style of the other buttons */
   background: rgba(34, 211, 238, 0.12);
   box-shadow: inset 0 0 0 1px rgba(34, 211, 238, 0.45);
   transition: transform 0.15s;
@@ -894,16 +922,18 @@ body.float-mode #tray-hint {
   transition: color 0.15s;
 }
 
-/* 激活侧文字用主题青色（子元素序：1=滑块 2/3=两侧文字） */
+/* the active side's text uses the theme cyan (child order: 1=knob, 2/3=side labels) */
 .view-toggle:not(.on) .vt-opt:nth-child(2),
 .view-toggle.on .vt-opt:nth-child(3) {
   color: var(--cyan);
   font-weight: 600;
 }
 
-/* 两视图互斥：整体曲线（#spark + 峰值标签）vs 模型详情（图例 + 折线 + 统计条）。
-   时间范围下拉两视图共用、恒显示——切换拨杆不改变统计范围。
-   #model-view 占满曲线卡剩余高度（同 #spark 的 flex:1 口径） */
+/* the two views are mutually exclusive: overall curve (#spark + peak label) vs
+   model detail (legend + lines + stat rows). The time-range dropdown is shared
+   by both views and always visible — the toggle does not change the stat range.
+   #model-view fills the chart card's remaining height (same flex:1 approach
+   as #spark) */
 #model-view {
   display: none;
   flex: 1;
@@ -920,11 +950,11 @@ body.chart-view-model #model-view {
   display: flex;
 }
 
-/* ---- 应用内更新：footer 最右的版本号是检查入口，更新卡片与轻提示在其上方 ---- */
+/* ---- In-app update: the footer's rightmost version number is the check entry point; the update card and toast sit above it ---- */
 
 #st-version {
-  margin-left: auto; /* footer 为 flex：把版本号推到整行最右 */
-  margin-right: -6px; /* 视觉上贴住 footer 右缘（补偿点击热区 padding） */
+  margin-left: auto; /* footer is flex: pushes the version number to the far right */
+  margin-right: -6px; /* visually hugs the footer's right edge (compensates the click-target padding) */
   padding: 1px 6px;
   border-radius: 6px;
   cursor: pointer;
@@ -947,7 +977,7 @@ body.chart-view-model #model-view {
   }
 }
 
-/* 用户关过提示、但该新版本还没处理：版本号旁挂小圆点持续提醒 */
+/* user dismissed the notice but this new version is still unhandled: a small dot beside the version number keeps reminding */
 #st-version.has-update::after {
   content: "";
   display: inline-block;
@@ -963,7 +993,7 @@ body.chart-view-model #model-view {
   display: none;
   position: fixed;
   right: 20px;
-  bottom: 46px; /* footer 状态栏上方 */
+  bottom: 46px; /* above the footer status bar */
   z-index: 110;
   width: 320px;
   padding: 12px 14px;
@@ -1067,7 +1097,7 @@ body.chart-view-model #model-view {
 .update-actions {
   display: flex;
   align-items: center;
-  flex-wrap: wrap; /* 错误信息较长时允许折行，不挤爆按钮 */
+  flex-wrap: wrap; /* allow wrapping for long error messages so buttons aren't squeezed */
   gap: 10px;
   margin-top: 10px;
 }
@@ -1105,7 +1135,7 @@ body.chart-view-model #model-view {
   margin-right: auto;
 }
 
-/* 图例：一行彩色圆点 + 模型短名，可换行（曲线卡模型详情视图内） */
+/* legend: one row of colored dots + short model names, wraps (inside the chart card's model detail view) */
 #model-legend {
   display: flex;
   flex-wrap: wrap;
@@ -1116,8 +1146,10 @@ body.chart-view-model #model-view {
   color: var(--text);
 }
 
-/* 图例 chips：自绘按钮（key-rules #8——勾选/开关一律自绘），点击切换模型显隐；
-   选中 = 亮色描边 + 色点，未选中 = 灰暗降透明 + 名字删除线 */
+/* legend chips: hand-drawn buttons (key-rules #8 — checkboxes/toggles are always
+   drawn manually); click toggles a model's visibility;
+   selected = bright stroke + color dot, unselected = dimmed opacity + name
+   strikethrough */
 .model-chip {
   display: inline-flex;
   align-items: center;
@@ -1150,7 +1182,7 @@ body.chart-view-model #model-view {
   text-decoration: line-through;
 }
 
-/* 图例行尾操作：全选 / 仅 Top3（小文字按钮） */
+/* legend row-end actions: select all / Top 3 only (small text buttons) */
 .model-legend-tools {
   display: inline-flex;
   align-items: center;
@@ -1177,8 +1209,9 @@ body.chart-view-model #model-view {
   flex: none;
 }
 
-/* 模型详情画布：占据图例与统计条之间的剩余高度（由 .chart-card canvas
-   的 flex:1 拉伸，容器自身也要参与 #model-view 的纵向分配） */
+/* model detail canvas: takes the remaining height between legend and stat rows
+   (stretched by .chart-card canvas's flex:1; the wrapper itself also joins
+   #model-view's vertical distribution) */
 #model-chart-wrap {
   position: relative;
   flex: 1;
@@ -1194,7 +1227,7 @@ body.chart-view-model #model-view {
   display: block;
 }
 
-/* 空状态：图表区域居中提示（display 由 JS 按有无数据在 none/flex 间切换） */
+/* empty state: centered hint over the chart area (display toggled by JS between none/flex depending on data) */
 #model-empty {
   position: absolute;
   inset: 0;
@@ -1206,7 +1239,7 @@ body.chart-view-model #model-view {
   pointer-events: none;
 }
 
-/* 图下方每模型一行统计条（横向 flex，可换行） */
+/* per-model stat rows below the chart (horizontal flex, wraps) */
 #model-summary {
   display: flex;
   flex-wrap: wrap;
@@ -1229,11 +1262,11 @@ body.chart-view-model #model-view {
   color: var(--text);
 }
 
-/* ---- 应用内更新：footer 最右的版本号是检查入口，更新卡片与轻提示在其上方 ---- */
+/* ---- In-app update: the footer's rightmost version number is the check entry point; the update card and toast sit above it ---- */
 
 #st-version {
-  margin-left: auto; /* footer 为 flex：把版本号推到整行最右 */
-  margin-right: -6px; /* 视觉上贴住 footer 右缘（补偿点击热区 padding） */
+  margin-left: auto; /* footer is flex: pushes the version number to the far right */
+  margin-right: -6px; /* visually hugs the footer's right edge (compensates the click-target padding) */
   padding: 1px 6px;
   border-radius: 6px;
   cursor: pointer;
@@ -1256,7 +1289,7 @@ body.chart-view-model #model-view {
   }
 }
 
-/* 用户关过提示、但该新版本还没处理：版本号旁挂小圆点持续提醒 */
+/* user dismissed the notice but this new version is still unhandled: a small dot beside the version number keeps reminding */
 #st-version.has-update::after {
   content: "";
   display: inline-block;
@@ -1272,7 +1305,7 @@ body.chart-view-model #model-view {
   display: none;
   position: fixed;
   right: 20px;
-  bottom: 46px; /* footer 状态栏上方 */
+  bottom: 46px; /* above the footer status bar */
   z-index: 110;
   width: 320px;
   padding: 12px 14px;
@@ -1376,7 +1409,7 @@ body.chart-view-model #model-view {
 .update-actions {
   display: flex;
   align-items: center;
-  flex-wrap: wrap; /* 错误信息较长时允许折行，不挤爆按钮 */
+  flex-wrap: wrap; /* allow wrapping for long error messages so buttons aren't squeezed */
   gap: 10px;
   margin-top: 10px;
 }
@@ -1417,22 +1450,23 @@ body.chart-view-model #model-view {
   visibility: visible;
 }
 
-/* 悬浮窗/桌宠窗口太小放不下更新 UI：不显示（回到完整面板仍可见） */
+/* floating window / desktop pet windows are too small for the update UI: hide it (visible again in the full panel) */
 body.float-mode #update-card,
 body.float-mode #update-toast {
   display: none !important;
 }
 
-/* ---- 模块显隐与排序（顶栏 ⚙ 设置弹窗，main.ts）---- */
+/* ---- module show/hide and ordering (header ⚙ settings modal, main.ts) ---- */
 
-/* 模块包装层：只为承载 data-module 供重排/隐藏，不参与布局（display:contents 让
-   卡片仍是 main 的直接 flex 项——间距 gap 14px、曲线卡 flex:1 拉伸口径都不变；
-   隐藏走文件顶部的全局 [hidden]{display:none!important}） */
+/* module wrapper: only carries data-module for reordering/hiding, no layout role
+   (display:contents keeps the cards direct flex items of main — the 14px gap and
+   the chart card's flex:1 stretch behavior stay unchanged; hiding goes through
+   the global [hidden]{display:none!important} at the top of the file) */
 .module-wrap {
   display: contents;
 }
 
-/* 全部模块被隐藏时的占位（顶栏 ⚙ 始终可再打开） */
+/* placeholder shown when every module is hidden (the header ⚙ can always reopen it) */
 #modules-empty {
   padding: 48px 0;
   text-align: center;
@@ -1440,8 +1474,10 @@ body.float-mode #update-toast {
   font-size: 13px;
 }
 
-/* 顶栏 ⚙ 齿轮按钮：图标按钮与 ⟳ 校准按钮同规格。选择器带 .ghost-btn 提高特异性，
-   压过文件后部 .ghost-btn 的 padding:3px 10px（同 .ghost-btn.recal-btn 的坑） */
+/* header ⚙ gear button: same spec as the ⟳ calibration icon button. The selector
+   includes .ghost-btn for higher specificity, beating .ghost-btn's
+   padding:3px 10px declared later in the file (same pitfall as
+   .ghost-btn.recal-btn) */
 .ghost-btn.settings-btn {
   width: 26px;
   height: 26px;
@@ -1454,7 +1490,7 @@ body.float-mode #update-toast {
   display: block;
 }
 
-/* 设置弹窗：复用模型详情/防护确认弹窗的遮罩 + 卡片风格 */
+/* settings modal: reuses the overlay + card style of the model detail / confirmation modals */
 #settings-modal {
   display: none;
   position: fixed;
@@ -1472,7 +1508,7 @@ body.float-mode #update-toast {
   border: 1px solid rgba(255, 255, 255, 0.14);
   background: rgba(13, 20, 36, 0.97);
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-  /* 加入自动启动区后弹窗变高：限制在视口内、超高自身滚动 */
+  /* the modal grew taller with the autostart section: cap it to the viewport and let it scroll when overflowing */
   max-height: calc(100vh - 48px);
   overflow-y: auto;
 }
@@ -1498,7 +1534,7 @@ body.float-mode #update-toast {
   background: rgba(255, 255, 255, 0.04);
 }
 
-/* 未勾选（隐藏中）的模块行整体压暗，勾选态一眼可辨 */
+/* unchecked (currently hidden) module rows dim overall; the checked state is recognizable at a glance */
 .settings-row.off .settings-info {
   opacity: 0.55;
 }
@@ -1510,7 +1546,7 @@ body.float-mode #update-toast {
   gap: 6px;
 }
 
-/* 勾选小方框与「常显上轮均速」同款（.pet-chk 结构复用，勾选态走本组件的 .on） */
+/* checkbox box same as "always show last-round average" (.pet-chk structure reused; checked state via this component's .on) */
 .settings-toggle.on .pet-chk {
   border-color: #22d3ee;
   background: rgba(34, 211, 238, 0.22);
@@ -1551,7 +1587,7 @@ body.float-mode #update-toast {
   gap: 4px;
 }
 
-/* ↑↓ 方形小按钮：选择器带 .ghost-btn 压过后部声明的 padding */
+/* ↑↓ small square buttons: the selector includes .ghost-btn to beat the padding declared later */
 .ghost-btn.settings-move {
   width: 24px;
   height: 24px;
@@ -1561,7 +1597,7 @@ body.float-mode #update-toast {
   font-size: 12px;
 }
 
-/* ---- 自动启动（设置弹窗第二区）：三态单选，行样式复用 .settings-row ---- */
+/* ---- autostart (settings modal second section): three-state radio, rows reuse .settings-row ---- */
 .settings-section-title {
   margin: 14px 0 0;
   font-size: 12px;
@@ -1582,7 +1618,7 @@ body.float-mode #update-toast {
   font-size: 11px;
 }
 
-/* 写注册表/LaunchAgent 失败时的行内报错（空时不占位） */
+/* inline error when writing the registry/LaunchAgent fails (takes no space when empty) */
 .autostart-error {
   font-size: 11px;
   color: #f87171;
@@ -1591,7 +1627,7 @@ body.float-mode #update-toast {
   display: none;
 }
 
-/* 悬浮窗/桌宠窗口太小放不下设置 UI：不显示（回到完整面板仍可打开） */
+/* floating window / desktop pet windows are too small for the settings UI: hide it (can be reopened in the full panel) */
 body.float-mode #settings-modal {
   display: none !important;
 }

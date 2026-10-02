@@ -32,17 +32,17 @@ async function tauriInvoke<T>(cmd: string, args?: Record<string, unknown>): Prom
 }
 
 const gCurrent = new ArcGauge($("g-current"), {
-  label: "当前输出速度",
+  label: "Current Output Speed",
   unit: "token / s",
   color: "#22d3ee",
   color2: "#0ea5e9",
   kind: "speed",
-  minScale: 60, // 最小量程 60 t/s，常见速度落在弧形中段更好读
-  tiers: SPEED_TIERS, // 六档（0–40/40–80/80–160/160–240/240–320/320+），随当前速度换色
+  minScale: 60, // minimum scale 60 t/s so common speeds sit in the middle of the arc for readability
+  tiers: SPEED_TIERS, // six tiers (0–40/40–80/80–160/160–240/240–320/320+), color follows the current speed
 });
 
 const gAvg = new ArcGauge($("g-avg"), {
-  label: "今日平均速度",
+  label: "Today's Average Speed",
   unit: "token / s",
   color: "#a78bfa",
   color2: "#8b5cf6",
@@ -50,30 +50,30 @@ const gAvg = new ArcGauge($("g-avg"), {
 });
 
 const gTotal = new ArcGauge($("g-total"), {
-  label: "今日总 Token",
-  unit: "今日累计",
+  label: "Today's Total Tokens",
+  unit: "Today's Cumulative",
   color: "#34d399",
   color2: "#10b981",
   kind: "tokens",
 });
 
-// 当前速度卡右上角小表：最近一轮已完成调用的速度（落盘口径，非实时）
+// Top-right badge on the current-speed card: speed of the most recent completed call (on-disk basis, not realtime)
 const gLast = new BadgeGauge($("g-last"), { tiers: SPEED_TIERS });
-// 当前速度卡右下角小表：近 7 天最高单调用速度（窗口与准入口径见 tooltip 与 metrics.rs）
-const gPeak = new BadgeGauge($("g-peak"), { tiers: SPEED_TIERS, label: "最高" });
-// 今日平均卡右上角小表：近 7 天平均速度（窗口内调用 Σeff ÷ Σgen，与今日平均同口径）
-const gHistAvg = new BadgeGauge($("g-histavg"), { tiers: SPEED_TIERS, label: "历史" });
+// Bottom-right badge on the current-speed card: fastest single call in the last 7 days (window and admission criteria: see the tooltip and metrics.rs)
+const gPeak = new BadgeGauge($("g-peak"), { tiers: SPEED_TIERS, label: "Peak" });
+// Top-right badge on the today-average card: average speed over the last 7 days (calls in window Σeff ÷ Σgen, same basis as today's average)
+const gHistAvg = new BadgeGauge($("g-histavg"), { tiers: SPEED_TIERS, label: "History" });
 
 const miniGauge = new MiniGauge($("mini-gauge"), { tiers: SPEED_TIERS });
-// 仪表悬浮窗右上角的上轮小环（与完整面板角标同款，只是尺寸更小）
+// Top-right last-call ring on the mini gauge floating window (same as the full panel's corner badge, just smaller)
 const miniLast = new BadgeGauge($("mini-last"), { tiers: SPEED_TIERS });
-// 存储键升级到 v2：让老用户也拿到一次新默认（鲸鱼女仆），之后的选择照常记住
+// Storage key bumped to v2 so existing users also get the new default (maid-deepseek-whale) once; later choices are remembered as usual
 const PET_PACK_KEY = "petPack.v2";
 let currentPetPack = localStorage.getItem(PET_PACK_KEY) ?? "maid-deepseek-whale";
 const petWidget = new PetWidget($<HTMLCanvasElement>("pet-canvas"), currentPetPack);
 petWidget.start();
 
-// ---- 桌宠滚轮缩放：上下滚动调整悬浮窗大小（后端记忆，重启后保持） ----
+// ---- Desktop pet wheel zoom: scroll up/down to resize the floating window (remembered by the backend, survives restarts) ----
 const PET_BASE_SIZE = 200;
 const PET_SIZE_MIN = 100;
 const PET_SIZE_MAX = 480;
@@ -94,7 +94,7 @@ $("float-pet").addEventListener(
   { passive: false }
 );
 
-// ---- 悬浮窗/桌宠右键菜单：恢复窗体 / 退出 ----
+// ---- Floating window / desktop pet context menu: restore window / quit ----
 const floatMenu = $("float-menu");
 const showFloatMenu = (x: number, y: number) => {
   floatMenu.style.display = "flex";
@@ -132,10 +132,11 @@ $("float-menu-quit").addEventListener("click", () => {
   tauriInvoke("quit_app");
 });
 
-// ---- 桌宠"常显上轮均速"：桌宠右键菜单勾选项 + 完整面板顶栏开关（同一状态）----
-// 勾选后气泡恒两行（生成中随实时速度一起展开显示，无需悬停）；显隐仍随生成状态，
-// 待机不显示。菜单点击后不收起，让勾选状态可见，点菜单外任意处照常关闭。
-// 顶栏开关仅桌宠样式时由 CSS 显示
+// ---- Desktop pet "always show last-call avg speed": pet context-menu checkbox + full-panel header toggle (same state) ----
+// When checked the bubble always shows two lines (expands with the realtime speed while generating, no hover needed); visibility still follows
+// the generation state, hidden while idle. Clicking the menu item does not close the menu so the checkbox state stays visible; clicking anywhere
+// outside the menu closes it as usual.
+// The header toggle is shown by CSS only for the desktop pet style
 const PET_LAST_KEY = "petLastAlways.v1";
 let petLastAlways = localStorage.getItem(PET_LAST_KEY) === "1";
 const petLastControls = [$("float-menu-pet-last"), $("pet-last-toggle")];
@@ -186,16 +187,16 @@ const floatLast = $("float-last");
 let lastSpark: number[] = [];
 let lastNowMs = 0;
 let sparkColor = "#22d3ee";
-// ---- 曲线时间范围（15m/1h/6h/24h，默认 15 分钟，localStorage 记住选择）----
-// 15 分钟档走 metrics payload 的今日 spark（后端把实时速度混入尾桶，零额外
-// 查询）；更长档位走 chart_stats 命令（usage 库现算 90 桶，5s 拉取一次），
-// 前端把实时速度混入最新桶——两档尾桶口径一致，切换无跳变
+// ---- Chart time range (15m/1h/6h/24h, default 15 minutes, choice remembered in localStorage) ----
+// The 15-minute range uses the today spark from the metrics payload (the backend mixes realtime speed into the tail bucket, zero extra
+// queries); longer ranges use the chart_stats command (the usage library computes 90 buckets on the fly, fetched every 5s),
+// and the frontend mixes realtime speed into the newest bucket — both ranges share the same tail-bucket semantics, so switching causes no jump
 type ChartRange = 15 | 60 | 360 | 1440;
 const CHART_RANGES: { value: ChartRange; label: string; bucketLabel: string; gridMs: number }[] = [
-  { value: 15, label: "15 分钟", bucketLabel: "10 秒一档", gridMs: 5 * 60_000 },
-  { value: 60, label: "1 小时", bucketLabel: "40 秒一档", gridMs: 10 * 60_000 },
-  { value: 360, label: "6 小时", bucketLabel: "4 分钟一档", gridMs: 60 * 60_000 },
-  { value: 1440, label: "24 小时", bucketLabel: "16 分钟一档", gridMs: 4 * 3_600_000 },
+  { value: 15, label: "15 min", bucketLabel: "10s buckets", gridMs: 5 * 60_000 },
+  { value: 60, label: "1 hour", bucketLabel: "40s buckets", gridMs: 10 * 60_000 },
+  { value: 360, label: "6 hours", bucketLabel: "4min buckets", gridMs: 60 * 60_000 },
+  { value: 1440, label: "24 hours", bucketLabel: "16min buckets", gridMs: 4 * 3_600_000 },
 ];
 const CHART_RANGE_KEY = "chartRange.v1";
 const storedChartRange = Number(localStorage.getItem(CHART_RANGE_KEY));
@@ -204,10 +205,10 @@ let chartRange: ChartRange = CHART_RANGES.some((r) => r.value === storedChartRan
   : 15;
 let chartCache: { buckets: number[]; bucketMs: number; nowMs: number } | null = null;
 let chartTimer = 0;
-// 最新一拍的实时状态（长档位尾桶混入用）
+// Latest tick's realtime state (used for mixing into the long-range tail bucket)
 let liveTpsNow = 0;
 let liveActive = false;
-// ---- 曲线卡视图（整体输出速度曲线 / 模型详情，拨杆互斥切换，记住选择）----
+// ---- Chart card view (overall speed chart / model details, mutually exclusive toggle, choice remembered) ----
 type ChartView = "total" | "model";
 const CHART_VIEW_KEY = "chartView.v1";
 let chartView: ChartView = localStorage.getItem(CHART_VIEW_KEY) === "model" ? "model" : "total";
@@ -216,7 +217,7 @@ function chartRangeCfg(): (typeof CHART_RANGES)[number] {
   return CHART_RANGES.find((r) => r.value === chartRange) ?? CHART_RANGES[0];
 }
 
-/** 长档位数据拉取：失败静默保留旧缓存（浏览器预览无 Tauri 同样静默） */
+/** Long-range data fetch: on failure keep the old cache silently (browser preview without Tauri also stays silent) */
 async function refreshChartStats() {
   const p = await tauriInvoke<{
     windowMin: number;
@@ -237,8 +238,8 @@ function redrawSpark() {
   }
   if (chartCache && chartCache.buckets.length >= 2) {
     const values = chartCache.buckets.slice();
-    // 实时尾桶混入（与 15 分钟档后端行为一致）：生成/估算中把最新桶临时填成
-    // 当前速度，下一轮 5s 拉取被真实落盘数据替换
+    // Realtime tail-bucket mixing (matches the 15-minute range's backend behavior): while generating/estimating the newest bucket is
+    // temporarily filled with the current speed; the next 5s fetch replaces it with real on-disk data
     if (liveActive && liveTpsNow > 0) values[values.length - 1] = liveTpsNow;
     drawSpark(sparkCanvas, values, sparkColor, lastNowMs, {
       bucketMs: chartCache.bucketMs,
@@ -246,14 +247,14 @@ function redrawSpark() {
     });
     return;
   }
-  // 浏览器预览（无 Tauri）：长档位暂无数据源，沿用 15 分钟 mock 数据画样式
+  // Browser preview (no Tauri): long ranges have no data source yet, so reuse the 15-minute mock data for styling
   if (!hasTauri && lastSpark.length) {
     drawSpark(sparkCanvas, lastSpark, sparkColor, lastNowMs, { gridMs: chartRangeCfg().gridMs });
   }
 }
 
-// 任务卡隐藏迟滞：任务数在 1↔2 边界抖动（子代理起止、流式阈值边缘）时，
-// 连续 3 拍（~2s）不足 2 行才隐藏，避免下方曲线卡整块上下跳
+// Task card hide hysteresis: when the task count flickers around the 1↔2 boundary (subagents starting/stopping, streaming threshold edge),
+// wait for 3 consecutive ticks (~2s) below 2 rows before hiding, so the chart card below doesn't jump up and down
 let taskHideStreak = 3;
 
 function statusClass(s: Snapshot): string {
@@ -262,9 +263,9 @@ function statusClass(s: Snapshot): string {
   return "dot idle";
 }
 
-/** 网速监控卡：整机实测速度 + 会话上传估算拆分。
- *  整机 = 接口计数器真实值；会话 = token×系数估算（带 ≈）。
- *  接口不可用（stub 平台）时整卡隐藏 */
+/** Network Monitor card: system-wide measured speed + session upload estimate breakdown.
+ *  System-wide = real interface counter values; session = token × coefficient estimate (with ≈).
+ *  The whole card is hidden when the interface is unavailable (stub platforms) */
 function renderNet(s: Snapshot) {
   if (!s.netAvailable) {
     netCard.hidden = true;
@@ -278,27 +279,27 @@ function renderNet(s: Snapshot) {
   netUpTodayEl.textContent = fmtBytes(s.netUpToday);
   netDownTodayEl.textContent = fmtBytes(s.netDownToday);
 
-  // 连接归属（仅 Windows）：每条连接的远端 + 归属进程（类型 + pid）挂 tooltip。
-  // 两组都是 ZCode 自身进程：会话 = CLI（对话 API 流量），
-  // 桌面端 = Electron 壳（遥测等非对话流量），不含其他应用
+  // Connection attribution (Windows only): each connection's remote endpoint + owning process (type + pid) attached as a tooltip.
+  // Both groups are ZCode's own processes: session = CLI (conversation API traffic),
+  // desktop = Electron shell (telemetry and other non-conversation traffic), no other apps
   netConnsEl.style.display = s.netConnsAvailable ? "" : "none";
   if (s.netConnsAvailable) {
     netCliConnsEl.textContent = String(s.netCliConns);
     netAppConnsEl.textContent = String(s.netAppConns);
     const connLines = (list: ConnStat[]) => list.map((r) => `${r.remote} · ${r.proc || "?"}(${r.pid})`);
     netConnCli.title = s.netCliConnList.length
-      ? `ZCode 会话进程（CLI，对话 API 流量）的连接：\n${connLines(s.netCliConnList).join("\n")}`
-      : "ZCode 会话进程当前无外连";
+      ? `ZCode session process (CLI, conversation API traffic) connections:\n${connLines(s.netCliConnList).join("\n")}`
+      : "ZCode session process has no outgoing connections";
     netConnApp.title = s.netAppConnList.length
-      ? `ZCode 桌面端进程（Electron 主/渲染/GPU/工具——遥测、更新等非对话流量）的连接：\n${connLines(s.netAppConnList).join("\n")}`
-      : "ZCode 桌面端进程当前无外连";
+      ? `ZCode desktop process (Electron main/render/GPU/utility — telemetry, updates, and other non-conversation traffic) connections:\n${connLines(s.netAppConnList).join("\n")}`
+      : "ZCode desktop process has no outgoing connections";
   }
-  netScope.textContent = s.netConnsAvailable ? "整机 = 本机全部应用流量（非仅 ZCode）" : "整机 = 本机全部应用流量";
+  netScope.textContent = s.netConnsAvailable ? "System-wide = all apps on this machine (not just ZCode)" : "System-wide = all apps on this machine";
 }
 
-/** 缓存命中率 = cache_read ÷ input（usage 库的 input 本身就是全部提示 token，
- *  缓存命中的部分已含其中，分母再加 cache_read 会重复计数；cache_creation 全库
- *  恒为 0，防御性保留在分母以兼容将来单列它的 provider） */
+/** Cache hit rate = cache_read ÷ input (in the usage library, input already counts all prompt tokens,
+ *  cache reads included; adding cache_read to the denominator again would double-count; cache_creation is
+ *  always 0 across libraries, kept in the denominator defensively for providers that may report it separately) */
 const cacheHitRate = (s: Snapshot): string => {
   const prompt = s.inputTokens + s.cacheCreationTokens;
   if (prompt <= 0) return "0%";
@@ -316,10 +317,10 @@ function onSnapshot(s: Snapshot) {
   miniLast.setTarget(s.lastCallTps);
   renderNet(s);
 
-  // 并发任务明细：≥2 个任务时显示（单任务时隐藏，不占版面）。
-  // 一个 CLI 进程 = 一行，行值合计 = 当前速度表（文件增长按字节占比分摊）；
-  // 同一进程承载多个会话（同一 ZCode 窗口新开任务会复用 app-server 进程，
-  // 字节层不可拆分）计为一行合计，按 n_sessions 计入任务总数
+  // Concurrent task details: shown when ≥2 tasks (hidden for a single task, takes no layout space).
+  // One CLI process = one row, row totals = the current speed gauge (file growth apportioned by byte share);
+  // one process carrying multiple sessions (a new task in the same ZCode window reuses the app-server process,
+  // inseparable at the byte level) counts as one combined row and joins the task total via n_sessions
   const tasks = s.tasks ?? [];
   const taskCount = tasks.reduce((n, t) => n + Math.max(1, t.nSessions || 0), 0);
   if (taskCount >= 2) {
@@ -335,13 +336,13 @@ function onSnapshot(s: Snapshot) {
       label.className = "task-sess";
       label.textContent =
         t.nSessions >= 2
-          ? `${t.nSessions} 会话（同进程合计） · 进程 ${t.pid}`
+          ? `${t.nSessions} sessions (combined) · PID ${t.pid}`
           : t.session
-            ? `会话 …${t.session.slice(-6)} · 进程 ${t.pid}`
-            : `未归属进程 ${t.pid}`;
+            ? `Session …${t.session.slice(-6)} · PID ${t.pid}`
+            : `Unattributed process ${t.pid}`;
       const tps = document.createElement("span");
       tps.className = "task-tps";
-      tps.textContent = t.streaming ? `${fmtTps(t.tps)} t/s` : "待机";
+      tps.textContent = t.streaming ? `${fmtTps(t.tps)} t/s` : "Idle";
       if (t.streaming) tps.style.color = speedColor(t.tps, SPEED_TIERS);
       row.append(dot, label, tps);
       taskList.append(row);
@@ -352,16 +353,16 @@ function onSnapshot(s: Snapshot) {
   }
 
   subCurrent.textContent = s.isStarting
-    ? "生成已启动 · 等待模型输出（统计中…）"
+    ? "Generation started · Waiting for model output (Collecting…)"
     : s.liveSource === "io"
       ? s.ramping
-        ? "实时实测 · 统计中…（30s 滑窗建立中）"
-        : `实时实测 · 进程流式输出（30s 滑窗实测${taskCount >= 2 ? ` · ${taskCount} 任务聚合` : ""}）`
+        ? "Measured live · Collecting… (30s sliding window establishing)"
+        : `Measured live · Process streaming output (30s sliding window${taskCount >= 2 ? ` · ${taskCount} tasks aggregated` : ""})`
       : s.isEstimating
-        ? "生成中 · 此段无增量字节，按近期真实速度估算 ≈"
-        : "待机 · 已无生成任务";
-  subAvg.textContent = `Σ输出 ÷ Σ生成时长 · 今日 ${s.callsToday} 次调用`;
-  subTotal.textContent = `输出 ${fmtTokens(s.outputTokens)} · 输入 ${fmtTokens(s.inputTokens)} · 缓存命中率 ${cacheHitRate(s)}`;
+        ? "Generating · No incremental bytes in this segment, estimating from recent real speed ≈"
+        : "Idle · No active generation tasks";
+  subAvg.textContent = `Σoutput ÷ Σgeneration time · ${s.callsToday} calls today`;
+  subTotal.textContent = `Output ${fmtTokens(s.outputTokens)} · Input ${fmtTokens(s.inputTokens)} · Cache hit rate ${cacheHitRate(s)}`;
   document.body.classList.toggle("live", s.isLive || s.isStarting);
   document.body.classList.toggle("est", s.isEstimating);
   const petState: "idle" | "running" | "estimating" | "starting" = s.isStarting
@@ -370,75 +371,75 @@ function onSnapshot(s: Snapshot) {
       ? "running"
       : "idle";
   petWidget.setLive(s.currentTps, petState);
-  // 多任务分进程明细：桌宠气泡 ≥2 任务时展开分任务行（与完整面板任务卡同口径；
-  // 单任务/回退/启动期传空，气泡只显示聚合值）
+  // Per-process multi-task details: the pet bubble expands to per-task rows when ≥2 tasks (same semantics as the full
+  // panel's task card; pass empty for single task / fallback / startup, the bubble only shows the aggregate)
   petWidget.setTasks(
     taskCount >= 2
       ? tasks.map((t) => ({
           label:
             t.nSessions >= 2
-              ? `${t.nSessions}会话·${t.pid}`
+              ? `${t.nSessions}sessions·${t.pid}`
               : t.session
                 ? `…${t.session.slice(-6)}`
-                : `进程 ${t.pid}`,
+                : `PID ${t.pid}`,
           tps: t.tps,
           streaming: t.streaming,
         }))
       : []
   );
   liveDot.className = statusClass(s);
-  liveText.textContent = s.isLive || s.isStarting ? "生成中" : s.isEstimating ? "估算中" : "待机";
-  updatedAt.textContent = `更新于 ${fmtClock(s.nowMs)}`;
+  liveText.textContent = s.isLive || s.isStarting ? "Generating" : s.isEstimating ? "Estimating" : "Idle";
+  updatedAt.textContent = `Updated at ${fmtClock(s.nowMs)}`;
   floatDot.className = statusClass(s);
   floatTps.textContent = s.isStarting
     ? "…"
     : (s.isEstimating && s.liveSource !== "io" ? "≈" : "") + fmtTps(s.currentTps);
   petWidget.setLast(s.lastCallTps);
-  // 胶囊第二行：上轮均速（落盘口径），按速度分档着色，无数据时显示 --
+  // Pill second line: last-call avg speed (on-disk basis), colored by speed tier, shows -- when there is no data
   floatLast.textContent = s.lastCallTps > 0 ? fmtTps(s.lastCallTps) : "--";
   floatLast.style.color = speedColor(s.lastCallTps, SPEED_TIERS);
 
-  // 窗口标题同步实时速度，任务栏/Alt+Tab 可直接看到
-  const title = `${s.isLive || s.isStarting ? "▶" : s.isEstimating ? "≈" : "⏸"} ${s.isStarting ? "…" : fmtTps(s.currentTps)} t/s · ${s.callsToday} 次 · ZCode 速度仪表盘`;
+  // Window title mirrors the realtime speed, directly visible in the taskbar / Alt+Tab
+  const title = `${s.isLive || s.isStarting ? "▶" : s.isEstimating ? "≈" : "⏸"} ${s.isStarting ? "…" : fmtTps(s.currentTps)} t/s · ${s.callsToday} calls · ZCode Speed Panel`;
   document.title = title;
   try {
     getCurrentWindow().setTitle(title).catch(() => {});
   } catch {
-    // 浏览器预览模式无 Tauri API
+    // Browser preview mode has no Tauri API
   }
 
-  stDir.textContent = `监控 ${s.rolloutDir}`;
-  stCalls.textContent = `今日调用 ${s.callsToday} 次`;
-  stSessions.textContent = `${s.sessionsToday} 个会话`;
-  stLast.textContent = `最近活动 ${fmtClock(s.lastActivityMs)}`;
+  stDir.textContent = `Monitoring ${s.rolloutDir}`;
+  stCalls.textContent = `Today's calls: ${s.callsToday}`;
+  stSessions.textContent = `${s.sessionsToday} sessions`;
+  stLast.textContent = `Last activity ${fmtClock(s.lastActivityMs)}`;
 
   lastSpark = s.spark;
   lastNowMs = s.nowMs;
   liveTpsNow = s.currentTps;
   liveActive = s.isLive || s.isEstimating;
   sparkColor = s.isLive ? "#22d3ee" : s.isEstimating ? "#fbbf24" : "#64748b";
-  // 峰值标签按当前展示的档位取数（15m = payload spark；长档位 = 5s 缓存 + 实时）
+  // Peak label reads from the currently shown range (15m = payload spark; long ranges = 5s cache + realtime)
   const shown = chartRange === 15 ? s.spark : (chartCache?.buckets ?? []);
   const peak = Math.max(10, ...shown, s.currentTps);
-  chartMax.textContent = `峰值 ${fmtTps(peak)} t/s`;
+  chartMax.textContent = `Peak ${fmtTps(peak)} t/s`;
   redrawSpark();
 }
 
 window.addEventListener("resize", redrawSpark);
 
-// ---- 曲线时间范围下拉（自绘 dropdown，与悬浮窗样式下拉同款交互）----
+// ---- Chart time range dropdown (custom dropdown, same interaction as the floating-window style dropdown) ----
 const chartDropdown = $("chart-window");
 const chartRangeOptions = Array.from(
   $<HTMLElement>("chart-window-list").querySelectorAll<HTMLButtonElement>("button[data-value]"),
 );
 
-/** 曲线卡标题按当前视图 + 当前范围档生成（范围下拉两视图共用） */
+/** Chart card title built from the current view + current range (the range dropdown is shared by both views) */
 function updateChartTitle() {
   const cfg = chartRangeCfg();
   $("chart-title").textContent =
     chartView === "model"
-      ? `近 ${cfg.label}模型速度趋势（${cfg.bucketLabel} · 按模型分类 · token/s）`
-      : `近 ${cfg.label}输出速度（${cfg.bucketLabel} · token/s，横轴为真实时刻）`;
+      ? `Model speed trends — last ${cfg.label} (${cfg.bucketLabel} · by model · token/s)`
+      : `Output speed — last ${cfg.label} (${cfg.bucketLabel} · token/s, x-axis is real time)`;
 }
 
 function applyChartRangeUi() {
@@ -471,7 +472,7 @@ function selectChartRange(r: ChartRange) {
     void refreshChartStats();
     chartTimer = window.setInterval(() => void refreshChartStats(), 5000);
   }
-  // 模型详情视图与整体曲线共用范围档：切档立即重拉模型统计
+  // The model details view shares the time range with the overall chart: switching range refetches model stats immediately
   if (chartView === "model") modelStats.refresh();
   redrawSpark();
 }
@@ -490,22 +491,22 @@ window.addEventListener("mousedown", (e) => {
 window.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && chartDropdown.classList.contains("open")) setChartDropdownOpen(false);
 });
-// 启动恢复上次选择的档位（长档位立即拉取一次并起 5s 定时器）
+// On startup restore the previously selected range (long ranges fetch once immediately and start the 5s timer)
 applyChartRangeUi();
 if (chartRange !== 15) {
   void refreshChartStats();
   chartTimer = window.setInterval(() => void refreshChartStats(), 5000);
 }
 
-// ---- 模式与悬浮窗样式（自绘下拉，替代原生 select：WebView2 弹层在浅色系统主题下看不清） ----
+// ---- Mode and floating window style (custom dropdown replacing the native select: WebView2 popups are unreadable on light system themes) ----
 function applyModeUi(mode: string) {
   document.body.classList.toggle("float-mode", mode === "float");
 }
 
 const STYLE_LABELS: Record<string, string> = {
-  pet: "桌宠",
-  gauge: "仪表悬浮窗",
-  pill: "胶囊悬浮窗",
+  pet: "Pet",
+  gauge: "Mini Gauge",
+  pill: "Speed Pill",
 };
 
 let currentStyle = localStorage.getItem("floatStyle") ?? "gauge";
@@ -556,28 +557,29 @@ $("float-pet-cycle").addEventListener("click", () => {
   localStorage.setItem(PET_PACK_KEY, currentPetPack);
 });
 
-// ---- 模块显隐与排序（顶栏 ⚙ 设置弹窗）----
-// 模块 = 完整面板 main 里可整块开关/排序的卡片组；并发任务卡跟着仪表盘走（不单列）。
-// 默认显示 仪表盘 / 网速监控 / 近 15 分钟输出速度。配置存 localStorage，跨重启保持。
+// ---- Module visibility and ordering (header ⚙ settings modal) ----
+// A module = a group of cards in the full panel main that can be toggled/reordered as a whole; the concurrent tasks
+// card follows the Dashboard (not listed separately).
+// Dashboard / Network Monitor / Speed Chart are shown by default. Config is stored in localStorage and survives restarts.
 type ModuleId = "gauges" | "net" | "chart";
 const MODULE_DEFS: { id: ModuleId; name: string; desc: string }[] = [
-  { id: "gauges", name: "仪表盘", desc: "当前速度 / 今日平均 / 今日总量（多任务时含并发任务明细）" },
-  { id: "net", name: "网速监控", desc: "整机上传/下载速度 · ZCode 连接归属 · 今日累计" },
-  { id: "chart", name: "输出速度曲线", desc: "整体速度曲线（四档时间范围）· 拨杆切换模型速度趋势" },
+  { id: "gauges", name: "Dashboard", desc: "Current speed / Today's average / Today's total (includes concurrent task details when multiple tasks)" },
+  { id: "net", name: "Network Monitor", desc: "System-wide upload/download speed · ZCode connection attribution · Today's totals" },
+  { id: "chart", name: "Speed Chart", desc: "Overall speed chart (four time ranges) · Toggle to model speed trends" },
 ];
 const MODULES_KEY = "modules.v1";
 const MODULES_DEFAULT_ORDER: ModuleId[] = ["gauges", "net", "chart"];
 const MODULES_DEFAULT_HIDDEN: ModuleId[] = [];
 
 interface ModulesConfig {
-  /** 全部模块的全局顺序（含隐藏的——重新勾选时回到原位，排序对隐藏行同样有效） */
+  /** Global order of all modules (including hidden ones — re-checking puts them back in their original position; ordering applies to hidden rows too) */
   order: ModuleId[];
-  /** 隐藏的模块 id */
+  /** Hidden module ids */
   hidden: ModuleId[];
 }
 
-/** 读 localStorage 并兜底清洗：JSON 损坏回默认；未知 id 剔除、缺失的按默认序补到末尾、
- *  去重——手改/旧版本配置不致丢模块或抛错 */
+/** Read localStorage with defensive sanitizing: corrupted JSON falls back to defaults; unknown ids are dropped, missing ids are appended in
+ *  default order, duplicates removed — hand-edited/outdated configs can neither lose modules nor throw */
 function loadModulesConfig(): ModulesConfig {
   const fallback = (): ModulesConfig => ({
     order: [...MODULES_DEFAULT_ORDER],
@@ -607,10 +609,11 @@ const footerEl = $("statusbar");
 const modulesEmpty = $("modules-empty");
 let modulesCfg = loadModulesConfig();
 
-/** 按配置重排/隐藏模块：wrapper 为 display:contents，卡片仍是 main 的 flex 项，
- *  顺序 = order 数组过滤隐藏项；footer 恒在最后。全部隐藏时给占位提示（顶栏 ⚙
- *  始终可再打开，但空白页不解释会像坏了）。网速卡自身还带数据可用性的
- *  hidden 逻辑（renderNet），与模块开关相互独立、取交集显示 */
+/** Reorder/hide modules per config: the wrapper is display:contents, cards remain flex items of main,
+ *  order = the order array minus hidden ids; the footer always stays last. When everything is hidden show a
+ *  placeholder (the header ⚙ can always reopen settings, but a blank page with no explanation looks broken).
+ *  The network card has its own data-availability hidden logic (renderNet), independent of the module
+ *  toggles; display requires both */
 function applyModules() {
   for (const id of modulesCfg.order) {
     const wrap = moduleWraps.get(id);
@@ -627,7 +630,7 @@ const saveModulesConfig = () => {
 };
 applyModules();
 
-// ---- 设置弹窗：自绘勾选（.pet-chk 同款，禁原生 checkbox）+ ↑↓ 排序，即时生效 ----
+// ---- Settings modal: custom checkboxes (same style as .pet-chk, native checkbox disabled) + ↑↓ reordering, takes effect immediately ----
 const settingsModal = $("settings-modal");
 const settingsList = $("settings-modules");
 const setSettingsOpen = (open: boolean) => {
@@ -645,11 +648,11 @@ function renderSettingsRows() {
     const toggle = document.createElement("button");
     toggle.type = "button";
     toggle.className = `ghost-btn settings-toggle${shown ? " on" : ""}`;
-    toggle.title = shown ? "隐藏该模块" : "显示该模块";
+    toggle.title = shown ? "Hide this module" : "Show this module";
     const chk = document.createElement("span");
     chk.className = "pet-chk";
     chk.setAttribute("aria-hidden", "true");
-    toggle.append(chk, document.createTextNode("显示"));
+    toggle.append(chk, document.createTextNode("Show"));
     toggle.addEventListener("click", () => {
       modulesCfg.hidden = shown
         ? [...modulesCfg.hidden, id]
@@ -681,14 +684,14 @@ function renderSettingsRows() {
     up.type = "button";
     up.className = "ghost-btn settings-move";
     up.textContent = "↑";
-    up.title = "上移";
+    up.title = "Move up";
     up.disabled = idx === 0;
     up.addEventListener("click", () => move(-1));
     const down = document.createElement("button");
     down.type = "button";
     down.className = "ghost-btn settings-move";
     down.textContent = "↓";
-    down.title = "下移";
+    down.title = "Move down";
     down.disabled = idx === modulesCfg.order.length - 1;
     down.addEventListener("click", () => move(1));
     const orderBtns = document.createElement("div");
@@ -715,7 +718,7 @@ $("settings-reset").addEventListener("click", () => {
   applyModules();
   renderSettingsRows();
 });
-// 点遮罩空白处 / Esc 关闭（与模型详情弹窗同一习惯）
+// Click on the backdrop / Esc closes (same convention as the model details modal)
 settingsModal.addEventListener("mousedown", (e) => {
   if (e.target === settingsModal) setSettingsOpen(false);
 });
@@ -723,19 +726,20 @@ window.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && settingsModal.style.display === "flex") setSettingsOpen(false);
 });
 
-// ---- 自动启动（设置弹窗「自动启动」区）：三态 off / boot / follow ----
-// 与模块显隐不同，事实源在后端（Windows 注册表 / mac LaunchAgent，见
-// autostart.rs）：打开弹窗时回读真实状态、点击即写并按写后回读刷新选中态。
-// 不存 localStorage——注册表/plist 是唯一事实源，避免两处状态漂移。
-// 浏览器预览（无 Tauri）仅展示不可写
+// ---- Auto-start (the settings modal's "Auto-start" section): three states off / boot / follow ----
+// Unlike module visibility, the source of truth is the backend (Windows registry / mac LaunchAgent, see
+// autostart.rs): the real state is read back when the modal opens, clicks write immediately and the selection is
+// refreshed from a post-write read-back.
+// Not stored in localStorage — the registry/plist is the single source of truth, avoiding state drift between the two.
+// Browser preview (no Tauri) is display-only
 type AutostartMode = "off" | "boot" | "follow";
 const AUTOSTART_DEFS: { id: AutostartMode; name: string; desc: string }[] = [
-  { id: "off", name: "关闭", desc: "不自动启动，需要时手动打开" },
-  { id: "boot", name: "开机自动启动", desc: "登录后常驻启动，按上次退出时的形态（完整面板 / 悬浮窗）显示" },
-  { id: "follow", name: "跟随 ZCode 启动", desc: "登录后静默待命（仅托盘图标、不显示窗口），检测到 ZCode 正在运行时自动亮出面板" },
+  { id: "off", name: "Off", desc: "Do not auto-start, open manually when needed" },
+  { id: "boot", name: "Launch at login", desc: "Always start after login, display in last-used form (full panel / floating window)" },
+  { id: "follow", name: "Follow ZCode startup", desc: "Wait silently after login (tray icon only, no window), automatically show panel when ZCode is running" },
 ];
 const autostartList = $("settings-autostart");
-/** null = 读取中/预览模式（三行都不显示选中） */
+/** null = reading/preview mode (no row shows as selected) */
 let autostartCurrent: AutostartMode | null = null;
 const autostartError = document.createElement("div");
 autostartError.className = "autostart-error";
@@ -747,15 +751,15 @@ function renderAutostartRows() {
     const row = document.createElement("div");
     row.className = on ? "settings-row" : "settings-row off";
 
-    // 单选语义：选中行复用模块行的自绘勾选样式（.pet-chk），未选中呈 off 态
+    // Radio semantics: the selected row reuses the module row's custom checkbox style (.pet-chk); unselected rows appear off
     const toggle = document.createElement("button");
     toggle.type = "button";
     toggle.className = `ghost-btn settings-toggle${on ? " on" : ""}`;
-    toggle.title = on ? "当前模式" : "切换到该模式";
+    toggle.title = on ? "Current mode" : "Switch to this mode";
     const chk = document.createElement("span");
     chk.className = "pet-chk";
     chk.setAttribute("aria-hidden", "true");
-    toggle.append(chk, document.createTextNode(on ? "已选" : "选择"));
+    toggle.append(chk, document.createTextNode(on ? "Selected" : "Select"));
     toggle.addEventListener("click", () => void applyAutostart(def.id));
 
     const info = document.createElement("div");
@@ -774,7 +778,7 @@ function renderAutostartRows() {
   autostartList.append(autostartError);
 }
 
-/** 打开弹窗时从后端回读真实状态（注册表/plist 即事实源，不信任上次内存值） */
+/** On modal open read the real state back from the backend (the registry/plist is the source of truth; don't trust the last in-memory value) */
 const refreshAutostart = async () => {
   const mode = await tauriInvoke<string>("autostart_get");
   autostartCurrent = mode === "boot" || mode === "follow" ? mode : "off";
@@ -789,20 +793,20 @@ const applyAutostart = async (mode: AutostartMode) => {
   autostartError.textContent = "";
   renderAutostartRows();
   try {
-    // 后端写完回读生效值（写失败抛错，前端回滚选中态并展示原因）
+    // Read back the effective value after the backend writes (a failed write throws; the frontend rolls back the selection and shows the reason)
     const applied = await tauriInvoke<string>("autostart_set", { mode });
     autostartCurrent = applied === "boot" || applied === "follow" ? applied : "off";
   } catch (e) {
     autostartCurrent = prev;
-    autostartError.textContent = `设置失败：${e}`;
+    autostartError.textContent = `Settings failed: ${e}`;
   }
   renderAutostartRows();
 };
 renderAutostartRows();
 
-// ---- 重新校准（当前速度卡左上角 ⟳）：丢弃字节→token 系数样本回到先验 ----
+// ---- Recalibrate (⟳ at the top-left of the current-speed card): discard the byte→token coefficient samples and return to the prior ----
 const btnRecal = $<HTMLButtonElement>("btn-recal");
-if (!hasTauri) btnRecal.style.display = "none"; // 浏览器预览无真实校准
+if (!hasTauri) btnRecal.style.display = "none"; // no real calibration in browser preview
 let recalTimer = 0;
 const flashRecal = () => {
   btnRecal.classList.add("done");
@@ -810,11 +814,11 @@ const flashRecal = () => {
   recalTimer = window.setTimeout(() => btnRecal.classList.remove("done"), 1500);
 };
 btnRecal.addEventListener("click", () => {
-  tauriInvoke("recalibrate").catch((err) => console.warn("recalibrate 失败:", err));
+  tauriInvoke("recalibrate").catch((err) => console.warn("recalibrate failed:", err));
 });
 
-// ---- 应用内更新：footer 右下角版本号（点击=手动检查）；后端启动+每日静默检查，
-//      发现新版本自动预下载并弹此卡片；无更新/网络异常静默，不打扰 ----
+// ---- In-app update: version number at the footer's bottom right (click = manual check); the backend checks silently at startup + daily,
+//      auto-pre-downloads new versions and pops this card; silent when there is no update / network error, never nags ----
 interface UpdateEvent {
   state: "available" | "downloading" | "ready" | "launching" | "error";
   currentVersion: string;
@@ -849,7 +853,7 @@ let toastTimer = 0;
 let checkingUpdate = false;
 
 if (!hasTauri) {
-  stVersion.style.display = "none"; // 浏览器预览无后端，隐藏入口
+  stVersion.style.display = "none"; // no backend in browser preview, hide the entry point
 } else {
   tauriInvoke<string>("app_version").then((v) => {
     if (v) {
@@ -870,10 +874,10 @@ const setUpdateProgress = (done: number, total: number) => {
   const pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
   updateBarFill.style.width = `${pct}%`;
   updateProgressText.textContent =
-    total > 0 ? `${pct}% · ${(done / 1048576).toFixed(1)}/${(total / 1048576).toFixed(1)} MB` : "下载中…";
+    total > 0 ? `${pct}% · ${(done / 1048576).toFixed(1)}/${(total / 1048576).toFixed(1)} MB` : "Downloading…";
 };
 
-/** 弹卡片（用户没关过这个版本的提示）；关过则只给版本号挂小圆点 */
+/** Pop the card (user hasn't dismissed this version's notice); if dismissed, just add a small dot to the version number */
 const maybeOpenCard = (e: UpdateEvent) => {
   if (updateDismissed && updateDismissed === e.newVersion) {
     stVersion.classList.add("has-update");
@@ -896,30 +900,30 @@ function applyUpdateEvent(e: UpdateEvent) {
     case "available":
       updateProgress.style.display = "none";
       updateInstall.disabled = false;
-      updateInstall.textContent = "⤓ 立即更新";
+      updateInstall.textContent = "⤓ Update Now";
       maybeOpenCard(e);
       break;
     case "downloading":
       updateProgress.style.display = "";
       setUpdateProgress(e.downloadedBytes, e.totalBytes);
       updateInstall.disabled = true;
-      updateInstall.textContent = "⤓ 下载中…";
+      updateInstall.textContent = "⤓ Downloading…";
       maybeOpenCard(e);
       break;
     case "ready":
       updateProgress.style.display = "none";
       updateInstall.disabled = false;
-      updateInstall.textContent = "⤓ 立即安装";
+      updateInstall.textContent = "⤓ Install Now";
       maybeOpenCard(e);
       break;
     case "launching":
       updateInstall.disabled = true;
-      updateInstall.textContent = "正在安装…";
+      updateInstall.textContent = "Installing…";
       updateCard.classList.add("show");
       break;
     case "error":
       updateInstall.disabled = false;
-      updateInstall.textContent = "重试";
+      updateInstall.textContent = "Retry";
       updateCard.classList.add("show");
       break;
   }
@@ -928,17 +932,17 @@ function applyUpdateEvent(e: UpdateEvent) {
 async function manualCheck() {
   if (!hasTauri || checkingUpdate) return;
   checkingUpdate = true;
-  // 先清"已关闭提示"再检查：手动检查视为重新关注，"available" 事件（可能先于
-  // invoke 返回到达）到达时能正常弹卡片
+  // Clear the "dismissed notice" before checking: a manual check counts as renewed interest, so the card pops normally
+  // when the "available" event arrives (it may arrive before the invoke returns)
   updateDismissed = "";
   localStorage.removeItem(DISMISS_KEY);
   stVersion.classList.remove("has-update");
   stVersion.classList.add("checking");
   try {
     const r = await tauriInvoke<CheckOutcome>("check_update");
-    if (r?.kind === "upToDate") toast(`已是最新版本 v${r.current}`);
-    else if (r?.kind === "failed") toast("检查更新失败：网络异常，请稍后重试");
-    // available → 卡片由 "update" 事件渲染
+    if (r?.kind === "upToDate") toast(`Already up to date v${r.current}`);
+    else if (r?.kind === "failed") toast("Update check failed: network error, please try again later");
+    // available → the card is rendered by the "update" event
   } finally {
     stVersion.classList.remove("checking");
     checkingUpdate = false;
@@ -948,12 +952,12 @@ async function manualCheck() {
 stVersion.addEventListener("click", () => manualCheck());
 updateInstall.addEventListener("click", () => {
   updateInstall.disabled = true;
-  updateInstall.textContent = "准备中…";
+  updateInstall.textContent = "Preparing…";
   tauriInvoke("install_update").catch((err) => {
     updateStatus.classList.add("error");
     updateStatus.textContent = String(err);
     updateInstall.disabled = false;
-    updateInstall.textContent = "重试";
+    updateInstall.textContent = "Retry";
   });
 });
 $("update-close").addEventListener("click", () => {
@@ -969,7 +973,7 @@ updateLink.addEventListener("click", (e) => {
   const url = updateLink.dataset.url;
   if (url) tauriInvoke("open_url", { url }).catch(() => {});
 });
-// 手动下载：应用内安装之外的自助路径（安装失败/不想自动装时直达 Release 页）
+// Manual download: self-service path besides in-app installation (goes straight to the Releases page when install fails or auto-install is unwanted)
 const RELEASES_URL = "https://github.com/Masterchiefm/zcode-speed-panel/releases";
 $("update-manual").addEventListener("click", () => {
   const url = updateLink.dataset.url || RELEASES_URL;
@@ -983,7 +987,7 @@ for (const opt of styleOptions) {
   opt.addEventListener("click", () => selectFloatStyle(opt.dataset.value!));
 }
 
-// ---- mac 引导提示：主窗口从隐藏→显示时后端发 "tray-hint"（Windows 不发，前端永不显示）----
+// ---- mac onboarding hint: the backend emits "tray-hint" when the main window goes hidden→visible (never emitted on Windows, the frontend never shows it) ----
 const trayHint = $("tray-hint");
 let trayHintTimer = 0;
 const showTrayHint = () => {
@@ -996,12 +1000,12 @@ trayHint.addEventListener("click", () => {
   trayHint.classList.remove("show");
 });
 
-// 顶栏/悬浮窗拖动：mousedown 调 startDragging（按钮、下拉框除外）。
-// 目标自身带 data-tauri-drag-region 时由 Tauri 内核直接处理（跳过，避免双重拖动）。
-// 双击必须在 detail>=2 的 mousedown 上直接触发、不能绑 DOM dblclick：
-// 第一下的 startDragging 进入 Windows 原生拖动循环吞掉鼠标序列，mouseup 靠
-// WM_EXITSIZEMOVE 补发，两对完整 click 湊不齐 → dblclick 永不触发（gauge/pill
-// 旧绑定因此一直静默失效）。Tauri 内核 drag.js 的双击最大化也是 detail===2 直调 IPC。
+// Header / floating window dragging: mousedown calls startDragging (buttons and dropdowns excepted).
+// If the target itself carries data-tauri-drag-region, the Tauri core handles it directly (skip, to avoid double dragging).
+// Double-click must fire directly on the detail>=2 mousedown; it cannot be bound as a DOM dblclick:
+// the first mousedown's startDragging enters the Windows native drag loop and swallows the mouse sequence, and mouseup is only
+// re-delivered via WM_EXITSIZEMOVE, so two complete click pairs never line up → dblclick never fires (the gauge/pill
+// legacy bindings therefore silently never worked). The Tauri core's drag.js double-click maximize also calls IPC directly on detail===2.
 function enableDrag(el: HTMLElement, onDoubleClick?: () => void) {
   el.addEventListener("mousedown", (e) => {
     const target = e.target as HTMLElement;
@@ -1022,7 +1026,7 @@ enableDrag($("float-gauge"), () => requestMode("full"));
 enableDrag($("float-pill"), () => requestMode("full"));
 enableDrag($("float-pet"), () => requestMode("full"));
 
-// ---- 自绘标题栏：拖动移动、双击最大化，— / ▢ / ✕ 窗口控制 ----
+// ---- Custom title bar: drag to move, double-click to maximize, — / ▢ / ✕ window controls ----
 const currentWindow = () => import("@tauri-apps/api/window").then((m) => m.getCurrentWindow());
 $("app-header").addEventListener("dblclick", (e) => {
   if ((e.target as HTMLElement).closest("button, select, input, .dropdown")) return;
@@ -1033,21 +1037,21 @@ if (hasTauri) {
     currentWindow().then((w) => w.minimize()).catch(() => {});
   });
   $("wc-max").addEventListener("click", () => {
-    // mac 用原生 Overlay 标题栏（真交通灯，绿点=原生全屏），此按钮已隐藏；
-    // Windows ▢ = 安全最大化（与双击顶栏同款）
+    // mac uses the native overlay title bar (real traffic lights, green dot = native fullscreen), so this button is hidden;
+    // Windows ▢ = safe maximize (same as double-clicking the header)
     tauriInvoke("toggle_maximize_safe").catch(() => {});
   });
   $("wc-close").addEventListener("click", () => requestMode("float"));
 } else {
-  // 浏览器预览无窗口控制
+  // No window controls in browser preview
   ($("win-controls") as HTMLElement).style.display = "none";
 }
 
 applyStyleUi(localStorage.getItem("floatStyle") ?? "gauge");
 
-// ---- 曲线卡「模型详情」视图（与整体输出速度曲线拨杆互斥切换） ----
-/** 浏览器预览（无 Tauri）：model_stats 走 mock 生成器（与整体曲线 mock 同源
- *  的调用流按模型拆分），其余命令照常走 tauriInvoke 静默返回 undefined */
+// ---- Chart card "Model Details" view (mutually exclusive with the overall speed chart via the toggle) ----
+/** Browser preview (no Tauri): model_stats uses the mock generator (the same call stream the overall chart's mock
+ *  draws from, split by model), all other commands still go through tauriInvoke and silently return undefined */
 async function modelStatsInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T | undefined> {
   if (!hasTauri && cmd === "model_stats") {
     return mockModelStats(Number(args?.windowMin ?? 60)) as T;
@@ -1059,9 +1063,9 @@ const modelStats = initModelStats(modelStatsInvoke, () => ({
   gridMs: chartRangeCfg().gridMs,
 }));
 
-// 分段拨杆：整体曲线 / 模型详情两视图互斥（色块滑到激活一侧）；
-// 显隐由 body.chart-view-model 驱动 CSS（#spark 与 #model-view 成对切换），
-// 数据轮询随视图启停（modelStats.setActive）。时间范围两视图共用，切拨杆不变
+// Segmented toggle: overall chart / model details are mutually exclusive views (the color block slides to the active side);
+// visibility is driven by body.chart-view-model via CSS (#spark and #model-view switch as a pair),
+// data polling starts/stops with the view (modelStats.setActive). The time range is shared by both views and unaffected by the toggle
 const viewToggle = $<HTMLButtonElement>("chart-view-toggle");
 
 function applyChartViewUi() {
@@ -1070,7 +1074,7 @@ function applyChartViewUi() {
   viewToggle.classList.toggle("on", model);
   viewToggle.setAttribute("aria-checked", String(model));
   updateChartTitle();
-  if (!model) redrawSpark(); // 切回整体曲线时立即重画（隐藏期间画布跳过了所有绘制）
+  if (!model) redrawSpark(); // redraw immediately when switching back to the overall chart (the canvas skipped all drawing while hidden)
   modelStats.setActive(model);
 }
 
@@ -1089,7 +1093,7 @@ if (hasTauri) {
     });
     await listen<string>("mode", (e) => applyModeUi(e.payload));
     await listen("tray-hint", () => showTrayHint());
-    // 重新校准完成（手动或漂移自动触发）：按钮闪 ✓ 反馈
+    // Recalibration finished (manual or auto-triggered by drift): the button flashes ✓ for feedback
     await listen("recalibrated", flashRecal);
     await listen<string>("float-style", (e) => {
       localStorage.setItem("floatStyle", e.payload);
@@ -1105,11 +1109,11 @@ if (hasTauri) {
       }
       onSnapshot({ ...p.snapshot, rolloutDir: p.rolloutDir });
     }
-    // mac 启动引导（一次性）：页面就绪后主动领取，避免 setup 内 emit 早于加载被丢弃
+    // mac onboarding (one-shot): claim it proactively once the page is ready, so an emit inside setup isn't dropped for arriving before the page loads
     if (await tauriInvoke<boolean>("tray_hint_once")) showTrayHint();
   })().catch((err) => {
-    document.title = `初始化失败 · ZCode 速度仪表盘`;
-    subCurrent.textContent = `Tauri 初始化失败：${err}`;
+    document.title = `Initialization failed · ZCode Speed Panel`;
+    subCurrent.textContent = `Tauri initialization failed: ${err}`;
   });
 } else {
   startMock(onSnapshot);

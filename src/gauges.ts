@@ -1,4 +1,4 @@
-// Canvas 弧形仪表盘、迷你悬浮仪表与速度曲线渲染
+// Canvas arc gauges, mini floating gauge, and speed chart rendering
 
 const FONT = `"Segoe UI", "Microsoft YaHei", sans-serif`;
 
@@ -20,11 +20,12 @@ export function fmtTps(v: number): string {
 export function fmtTokens(n: number): string {
   if (n < 0) return "0";
   if (n < 10000) return Math.round(n).toLocaleString("en-US");
-  if (n < 1e8) {
-    const w = n / 1e4;
-    return (w >= 100 ? w.toFixed(0) : w.toFixed(1)) + " 万";
+  if (n < 1e6) {
+    const k = n / 1e3;
+    return (k >= 100 ? k.toFixed(0) : k.toFixed(1)) + "k";
   }
-  return (n / 1e8).toFixed(2) + " 亿";
+  const m = n / 1e6;
+  return (m >= 100 ? m.toFixed(0) : m.toFixed(1)) + "M";
 }
 
 export function fmtClock(ms: number): string {
@@ -34,7 +35,7 @@ export function fmtClock(ms: number): string {
   return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
 
-/** 字节量（网络流量累计）：KB/MB/GB，中文界面沿用国际单位 */
+/** Byte amounts (network traffic totals): KB/MB/GB, international units for every locale */
 export function fmtBytes(n: number): string {
   if (!isFinite(n) || n < 0) return "--";
   if (n < 1024) return `${Math.round(n)} B`;
@@ -43,7 +44,7 @@ export function fmtBytes(n: number): string {
   return `${(n / 1073741824).toFixed(2)} GB`;
 }
 
-/** 字节率（网络速度） */
+/** Byte rate (network speed) */
 export function fmtBps(bps: number): string {
   if (!isFinite(bps) || bps < 0) return "--";
   if (bps < 1024) return `${Math.round(bps)} B/s`;
@@ -52,40 +53,40 @@ export function fmtBps(bps: number): string {
 }
 
 const TAU = Math.PI * 2;
-/** 弧形起止角（270° 扫过，缺口朝下） */
+/** Arc start/end angles (270° sweep, gap at the bottom) */
 const A0 = Math.PI * 0.75;
 const SWEEP = Math.PI * 1.5;
 const EST_COLOR = "#fbbf24";
 
-/** 速度分档：当前速度落在哪一档，进度弧与数字就用哪一档的颜色 */
+/** Speed tiers: whichever tier the current speed falls in, the progress arc and number use that tier's color */
 export interface SpeedTier {
-  /** 该档上界（含），最后一档为 Infinity */
+  /** Tier upper bound (inclusive); the last tier is Infinity */
   upTo: number;
-  /** 6 位 hex；暗色轨道由代码追加透明度生成 */
+  /** 6-digit hex; the dim track color is derived in code by appending alpha */
   color: string;
 }
 
-/** 六档覆盖到极速模型（实测部分模型远超 100 t/s）；色相沿绿→黄→红推进，320+ 品红标记极速 */
+/** Six tiers covering ultra-fast models (some models measured well beyond 100 t/s); hue advances green→yellow→red, 320+ magenta marks the extreme tier */
 export const SPEED_TIERS: readonly SpeedTier[] = [
-  { upTo: 40, color: "#34d399" }, // 0–40 · 绿
-  { upTo: 80, color: "#a3e635" }, // 40–80 · 黄绿
-  { upTo: 160, color: "#fbbf24" }, // 80–160 · 黄
-  { upTo: 240, color: "#fb923c" }, // 160–240 · 橙
-  { upTo: 320, color: "#f87171" }, // 240–320 · 红
-  { upTo: Infinity, color: "#e879f9" }, // 320+ · 品红（极速）
+  { upTo: 40, color: "#34d399" }, // 0–40 · green
+  { upTo: 80, color: "#a3e635" }, // 40–80 · yellow-green
+  { upTo: 160, color: "#fbbf24" }, // 80–160 · yellow
+  { upTo: 240, color: "#fb923c" }, // 160–240 · orange
+  { upTo: 320, color: "#f87171" }, // 240–320 · red
+  { upTo: Infinity, color: "#e879f9" }, // 320+ · magenta (extreme)
 ];
 
 function speedTier(v: number): SpeedTier {
   return SPEED_TIERS.find((t) => v <= t.upTo) ?? SPEED_TIERS[SPEED_TIERS.length - 1];
 }
 
-/** 速度 → 档位序号 0..5（与 SPEED_TIERS 同序，0–40 为第 0 档）；供桌宠按档位切换动画 */
+/** Speed → tier index 0..5 (same order as SPEED_TIERS, 0–40 is tier 0); the desktop pet uses it to switch animations by tier */
 export function speedTierIndex(v: number, tiers: readonly SpeedTier[] = SPEED_TIERS): number {
   return Math.max(0, tiers.findIndex((t) => v <= t.upTo));
 }
 
-/** 速度 → 分档颜色；0（无数据/待机）或未配置分档时返回暗灰。
- *  供表盘与 HTML 文本（胶囊悬浮窗的上轮读数）共用同一套配色 */
+/** Speed → tier color; returns dim gray for 0 (no data/idle) or when no tiers are configured.
+ *  Shared by the gauges and HTML text (the pill floating window's last-call reading) */
 const NO_SPEED_COLOR = "#8b93a7";
 export function speedColor(v: number, tiers?: readonly SpeedTier[]): string {
   return v > 0 && tiers ? speedTier(v).color : NO_SPEED_COLOR;
@@ -133,7 +134,7 @@ function progressGradient(
   return c1;
 }
 
-/** 统一的动画帧循环：量程跟随峰值平滑变化，避免归零时“先跑满再落下” */
+/** Shared animation frame loop: the scale follows the peak smoothly, avoiding "fill up then fall" when returning to zero */
 const animItems: Array<{ frame(dt: number): void }> = [];
 let rafStarted = false;
 let lastFrame = 0;
@@ -155,7 +156,7 @@ interface GaugeOptions {
   color: string;
   color2?: string;
   minScale: number;
-  /** 设置后进度弧/背景轨道按分档区间分段着色（当前速度表用） */
+  /** When set, the progress arc/track are colored per tier segment (used by the current speed gauge) */
   tiers?: readonly SpeedTier[];
 }
 
@@ -166,7 +167,7 @@ abstract class BaseGauge {
   protected target = 0;
   protected max: number;
   protected est = false;
-  /** 启动期（门控已开、首字节未到）：呼吸脉冲弧 + "…" 数字提示统计中 */
+  /** Starting phase (gate open, first byte not yet arrived): breathing pulse arc + "…" number to indicate collecting */
   protected starting = false;
 
   constructor(canvas: HTMLCanvasElement, opts: GaugeOptions) {
@@ -184,7 +185,7 @@ abstract class BaseGauge {
     this.starting = starting;
   }
 
-  /** 启动期呼吸相位（0~1，约 1.9s 一个周期） */
+  /** Starting-phase breathing phase (0~1, roughly one cycle per 1.9s) */
   protected pulse(): number {
     return 0.5 + 0.5 * Math.sin(performance.now() / 300);
   }
@@ -193,7 +194,7 @@ abstract class BaseGauge {
     const k = 1 - Math.exp(-dt * 7);
     this.value += (this.target - this.value) * k;
     if (Math.abs(this.target - this.value) < 0.005) this.value = this.target;
-    // 量程跟随：峰值上涨立刻放大，回落时缓慢收缩（收缩速度跟不上指针下落就会“先满后落”）
+    // Scale following: expand immediately when the peak rises, shrink slowly on the way down (if shrinking can't keep up with the needle's fall it "fills first, falls later")
     const peak = Math.max(this.value, this.target);
     const desired = Math.max(this.opts.minScale, niceCeil(peak * 1.2));
     if (desired > this.max) {
@@ -213,8 +214,8 @@ export class ArcGauge extends BaseGauge {
   private kind: "speed" | "tokens";
 
   constructor(canvas: HTMLCanvasElement, opts: { label: string; unit: string; color: string; color2?: string; kind: "speed" | "tokens"; minScale?: number; tiers?: readonly SpeedTier[] }) {
-    // 默认：速度表最小量程 10 t/s，今日总量表 1 亿（超过后再按峰值放大）；
-    // 可用 opts.minScale 覆盖（如当前速度表用 60，低速段分辨率更高）
+    // Defaults: speed gauge minimum scale 10 t/s, today's total gauge 100M (scaled up by the peak beyond that);
+    // override with opts.minScale (e.g. the current speed gauge uses 60 for better resolution at low speeds)
     super(canvas, {
       color: opts.color,
       color2: opts.color2,
@@ -241,7 +242,7 @@ export class ArcGauge extends BaseGauge {
     ctx.fillText(this.label, cx, 16);
 
     const frac = Math.max(0.0001, Math.min(1, this.value / this.max));
-    // 背景轨道统一灰色
+    // Background track is always gray
     ctx.lineWidth = 13;
     ctx.lineCap = "round";
     ctx.strokeStyle = "rgba(255,255,255,0.07)";
@@ -250,7 +251,7 @@ export class ArcGauge extends BaseGauge {
     ctx.stroke();
 
     if (this.starting) {
-      // 启动期：短弧呼吸脉冲（已连接、等待模型输出），不用分档色——还没有速度
+      // Starting phase: short breathing pulse arc (connected, waiting for model output), not tier-colored — no speed yet
       const p = this.pulse();
       ctx.save();
       ctx.globalAlpha = 0.45 + 0.55 * p;
@@ -262,7 +263,7 @@ export class ArcGauge extends BaseGauge {
       ctx.stroke();
       ctx.restore();
     } else if (this.opts.tiers && !this.est) {
-      // 整条进度弧随当前速度所在档位整体换色（六档见 SPEED_TIERS）
+      // The whole progress arc changes color with the current speed's tier (six tiers, see SPEED_TIERS)
       const tierColor = speedTier(this.value).color;
       ctx.save();
       ctx.shadowColor = tierColor;
@@ -323,7 +324,7 @@ export class ArcGauge extends BaseGauge {
       fs -= 2;
       ctx.font = `600 ${fs}px ${FONT}`;
     }
-    // 数字随当前档位换色（估算态/未分档保持原白色），待机为 0 时仍是默认白
+    // The number changes color with the current tier (estimating/untiered keeps the original white); idle at 0 stays the default white
     ctx.fillStyle =
       this.value > 0 && this.opts.tiers && !this.est ? speedTier(this.value).color : "#e6e9f0";
     if (this.starting) ctx.globalAlpha = 0.45 + 0.55 * this.pulse();
@@ -335,11 +336,11 @@ export class ArcGauge extends BaseGauge {
   }
 }
 
-/** 悬浮窗用的迷你仪表盘 */
+/** Mini gauge for the floating window */
 export class MiniGauge extends BaseGauge {
   constructor(canvas: HTMLCanvasElement, opts?: { color?: string; color2?: string; tiers?: readonly SpeedTier[] }) {
-    // 最小量程与完整面板当前速度表一致（60 t/s），分档色同用 SPEED_TIERS，
-    // 两处表盘读弧口径相同
+    // Minimum scale matches the full panel's current speed gauge (60 t/s), tier colors also come from SPEED_TIERS,
+    // both gauges read the arc with the same semantics
     super(canvas, { color: opts?.color ?? "#22d3ee", color2: opts?.color2 ?? "#0ea5e9", minScale: 60, tiers: opts?.tiers });
   }
 
@@ -349,12 +350,12 @@ export class MiniGauge extends BaseGauge {
     const { ctx, w, h } = fit;
     const cx = w / 2;
     const r = Math.min(w, h) * 0.36;
-    // 弧线两端（135°/45° 端点 + 7px 圆头线帽的一半）锚在距画布底 8px——
-    // 与右上角"上轮"小环的 top:8px 对称（窗口 148×118，见 main.rs FLOAT_GAUGE_SIZE）
+    // The arc's two ends (135°/45° endpoints + half of the 7px round cap) anchor 8px above the canvas bottom —
+    // symmetric with the "last call" ring's top:8px at the top right (window 148×118, see main.rs FLOAT_GAUGE_SIZE)
     const cy = h - 8 - (r * Math.SQRT1_2 + 3.5);
 
     const frac = Math.max(0.0001, Math.min(1, this.value / this.max));
-    // 背景轨道统一灰色
+    // Background track is always gray
     ctx.lineWidth = 7;
     ctx.lineCap = "round";
     ctx.strokeStyle = "rgba(255,255,255,0.08)";
@@ -363,7 +364,7 @@ export class MiniGauge extends BaseGauge {
     ctx.stroke();
 
     if (this.starting) {
-      // 启动期：短弧呼吸脉冲（等待模型输出）
+      // Starting phase: short breathing pulse arc (waiting for model output)
       const p = this.pulse();
       ctx.save();
       ctx.globalAlpha = 0.45 + 0.55 * p;
@@ -375,7 +376,7 @@ export class MiniGauge extends BaseGauge {
       ctx.stroke();
       ctx.restore();
     } else if (this.opts.tiers && !this.est) {
-      // 整条进度弧随当前速度所在档位整体换色
+      // The whole progress arc changes color with the current speed's tier
       const tierColor = speedTier(this.value).color;
       ctx.save();
       ctx.shadowColor = tierColor;
@@ -416,16 +417,16 @@ export class MiniGauge extends BaseGauge {
   }
 }
 
-/** 卡片角标小圆环：显示"上轮 / 最高 / 历史"等单值口径（落盘统计，非实时）。
- *  默认画在"当前输出速度"卡右上角显示上轮调用速度，尺寸约 56 CSS px，
- *  与主表共用分档配色；label 可换角标文案（峰/历史等）。
- *  今日无已完成调用时保持灰色 0（不做脉冲/估算态：落盘值没有"统计中"一说） */
+/** Card corner badge ring: shows single-value metrics like "last call / peak / history" (on-disk stats, not realtime).
+ *  By default drawn at the top-right of the "Current Output Speed" card showing the last call's speed, about 56 CSS px,
+ *  sharing the tier palette with the main gauge; label swaps the badge text (peak/history etc.).
+ *  Stays gray 0 when today has no completed calls (no pulse/estimating state: an on-disk value is never "collecting") */
 export class BadgeGauge extends BaseGauge {
   private label: string;
 
   constructor(canvas: HTMLCanvasElement, opts?: { tiers?: readonly SpeedTier[]; label?: string }) {
     super(canvas, { color: "#22d3ee", minScale: 60, tiers: opts?.tiers });
-    this.label = opts?.label ?? "上轮";
+    this.label = opts?.label ?? "Last Call";
   }
 
   protected draw() {
@@ -474,15 +475,15 @@ export class BadgeGauge extends BaseGauge {
   }
 }
 
-/** 输出速度曲线（默认 15 分钟 10 秒一档）；x 轴为真实墙钟时刻，整条曲线随时间
- *  连续左移。时间范围可变（15m/1h/6h/24h），经 opts 传入对应桶宽与网格间隔 */
+/** Output speed chart (default 15 minutes in 10s buckets); the x-axis is real wall-clock time and the whole curve
+ *  slides continuously left over time. The time range is variable (15m/1h/6h/24h), with bucket width and grid interval passed via opts */
 const SPARK_BUCKET_MS = 10_000;
 const SPARK_GRID_MS = 5 * 60_000;
 
 export interface SparkOptions {
-  /** 桶宽（ms），默认 10s（15 分钟档） */
+  /** Bucket width (ms), default 10s (15-minute range) */
   bucketMs?: number;
-  /** x 轴网格间隔（ms），默认 5 分钟（15 分钟档） */
+  /** x-axis grid interval (ms), default 5 minutes (15-minute range) */
   gridMs?: number;
 }
 
@@ -528,9 +529,9 @@ export function drawSpark(
   const x = (i: number) => padL + iw - ((n - 1 - i) + phase) * dx;
   const y = (v: number) => padT + ih - (Math.min(v, peak) / peak) * ih;
 
-  // ---- x 轴真实时刻刻度（按 gridMs 取整分）：与数据点同一时间映射反解 x，
-  //      可直接对表验证。最新桶结束时刻 = 下一个桶边界；右缘即"现在"
-  //      （差 ≤1 档，肉眼不可辨）
+  // ---- x-axis real-time tick labels (rounded to whole minutes per gridMs): x is back-solved with the same time
+  //      mapping as the data points, so they can be verified directly against the clock. The newest bucket's end
+  //      = the next bucket boundary; the right edge is "now" (off by at most one bucket, imperceptible)
   const tLastEnd = Math.floor(nowMs / bucketMs) * bucketMs + bucketMs;
   const xAt = (t: number) => padL + iw - ((tLastEnd - t) / bucketMs) * dx;
   ctx.textAlign = "center";
@@ -549,10 +550,10 @@ export function drawSpark(
     const mm = d.getMinutes().toString().padStart(2, "0");
     ctx.fillText(`${hh}:${mm}`, gx, h - padB + 4);
   }
-  // 右缘：当前时刻（靠右对齐避免溢出）
+  // Right edge: current time (right-aligned to avoid overflow)
   ctx.textAlign = "right";
   ctx.fillStyle = "rgba(139,147,167,0.9)";
-  ctx.fillText(`现在 ${fmtClock(nowMs).slice(0, 5)}`, padL + iw, h - padB + 4);
+  ctx.fillText(`Now ${fmtClock(nowMs).slice(0, 5)}`, padL + iw, h - padB + 4);
 
   const grad = ctx.createLinearGradient(0, padT, 0, padT + ih);
   grad.addColorStop(0, color + "52");

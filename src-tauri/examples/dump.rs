@@ -1,5 +1,5 @@
-//! 调试工具：让与主程序完全相同的 Engine 代码直接读取真实数据并打印快照
-//! 用法：cargo run --example dump
+//! Debug tool: runs Engine code identical to the main app against real data and prints snapshots.
+//! Usage: cargo run --example dump
 #[path = "../src/metrics.rs"]
 mod metrics;
 #[path = "../src/liveio.rs"]
@@ -10,7 +10,7 @@ use metrics::Engine;
 fn main() {
     let mut e = Engine::new();
     let mut li = liveio::LiveIo::new();
-    println!("数据源: {}", e.data_source_label());
+    println!("Data source: {}", e.data_source_label());
     for i in 0..8 {
         let calls = e.poll();
         li.observe(&calls);
@@ -30,7 +30,7 @@ fn main() {
             })
             .collect();
         println!(
-            "[轮 {}] 当前 {:.1} t/s | 今日均值 {:.1} t/s | 今日总 {} tok (出 {}/入 {}/缓存写 {}/缓存读 {}) | 调用 {} 次 / {} 会话 | live可用={} streaming={} tps={:.1} npids={} tasks=[{}]",
+            "[round {}] current {:.1} t/s | today avg {:.1} t/s | today total {} tok (out {}/in {}/cache write {}/cache read {}) | {} calls / {} sessions | live available={} streaming={} tps={:.1} npids={} tasks=[{}]",
             i,
             s.current_tps,
             s.avg_tps,

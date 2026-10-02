@@ -1,21 +1,25 @@
 #!/usr/bin/env python3
-"""实时 t/s vs 调用真值 对账分析。
+"""Live t/s vs per-call ground-truth reconciliation analysis.
 
-数据源：~/.zcode/speed-panel-debug.jsonl（面板调试日志）
-  - kind=cal  ：每次调用完成后的校准/对账事件（v2 起含 true_tps / pred_tps / clean_kb）
-  - kind=tick ：面板实际显示值（tps / pipe / src）
-  - kind=call ：调用真值（eff / gen_ms / true_tps）
+Data source: ~/.zcode/speed-panel-debug.jsonl (panel debug log)
+  - kind=cal  : calibration/reconciliation event after each call completes
+    (v2 onward includes true_tps / pred_tps / clean_kb)
+  - kind=tick : the panel's actual displayed values (tps / pipe / src)
+  - kind=call : call ground truth (eff / gen_ms / true_tps)
 
-用法：
-  python scripts/live_vs_true.py                 # 分析默认日志
-  python scripts/live_vs_true.py <日志路径>       # 分析指定日志
-  python scripts/live_vs_true.py --ticks         # 追加：tick 级显示值分布
+Usage:
+  python scripts/live_vs_true.py                 # analyze the default log
+  python scripts/live_vs_true.py <log path>      # analyze the given log
+  python scripts/live_vs_true.py --ticks         # extra: tick-level display value distribution
 
-评估口径：
-  pred_tps = 清洗流在 [first_token, completed] 的积分字节 ÷ 生成长(s) ÷ 当前 bpt
-  —— 即"该调用期间显示口径的平均 t/s 预测"。pred/true 越接近 1 越准。
-旧格式日志（cal 无 pred_tps 字段）自动退化为 tick 回放法：取调用区间内
-io 来源 tick 显示值的均值与真值对比。
+Measurement methodology:
+  pred_tps = cleaned-stream bytes integrated over [first_token, completed]
+  ÷ generation seconds ÷ current bpt — i.e. the "average t/s predicted by the
+  display methodology during that call". The closer pred/true is to 1, the
+  more accurate.
+Old-format logs (cal without a pred_tps field) automatically fall back to the
+tick replay method: compare the mean of io-source tick display values within
+the call interval against ground truth.
 """
 from __future__ import annotations
 
@@ -47,7 +51,7 @@ def load(path: Path):
 
 
 def recon_new(cals, calls):
-    """v2 口径：cal 事件自带积分对账字段"""
+    """v2 measurement methodology: cal events carry their own integration reconciliation fields"""
     by_id = {c["id"]: c for c in calls}
     rows = []
     for cal in cals:
@@ -69,7 +73,7 @@ def recon_new(cals, calls):
 
 
 def recon_legacy(calls, ticks):
-    """旧口径：调用区间内 io 来源 tick 显示值均值 vs 真值"""
+    """Legacy methodology: mean of io-source tick display values within the call interval vs ground truth"""
     rows = []
     for c in calls:
         t0 = c["done"] - c["gen_ms"]
@@ -98,24 +102,24 @@ def main():
     path = Path(sys.argv[1]) if len(sys.argv) > 1 and not sys.argv[1].startswith("--") else DEFAULT_LOG
     show_ticks = "--ticks" in sys.argv
     if not path.exists():
-        print(f"日志不存在: {path}")
+        print(f"Log not found: {path}")
         sys.exit(1)
 
     calls, ticks, cals = load(path)
     rows = recon_new(cals, calls)
-    mode = "v2 积分对账"
+    mode = "v2 integration reconciliation"
     if not rows:
         rows = recon_legacy(calls, ticks)
-        mode = "旧版 tick 回放（建议升级面板后重新采样）"
+        mode = "legacy tick replay (recommend upgrading the panel and resampling)"
 
     qualified = [r for r in rows if r["eff"] >= 300 and not r["skipped"] and r["true"] > 0]
-    print(f"日志: {path}")
-    print(f"口径: {mode} | 调用 {len(calls)} 次，对账样本 {len(rows)}，达标(≥300 tok 且入校准) {len(qualified)}\n")
+    print(f"Log: {path}")
+    print(f"Methodology: {mode} | {len(calls)} calls, {len(rows)} reconciliation samples, qualified (≥300 tok and entered calibration) {len(qualified)}\n")
     if not qualified:
-        print("暂无达标对账样本（需 ≥300 token 的调用完成后生成）。")
+        print("No qualified reconciliation samples yet (generated once calls with ≥300 tokens complete).")
         return
 
-    print(f"{'完成时刻':>9} {'gen_s':>6} {'eff':>6} {'true':>7} {'pred':>7} {'ratio':>6} {'bpt样本':>8} {'bpt生效':>8}")
+    print(f"{'done at':>9} {'gen_s':>6} {'eff':>6} {'true':>7} {'pred':>7} {'ratio':>6} {'bpt_samp':>8} {'bpt_eff':>8}")
     ratios = []
     for r in qualified[-40:]:
         ratio = r["pred"] / r["true"] if r["true"] else 0.0
@@ -128,13 +132,13 @@ def main():
 
     med = statistics.median(ratios)
     within = sum(1 for x in ratios if 0.8 <= x <= 1.25) / len(ratios)
-    print(f"\npred/true 中位数 = {med:.2f}（1.00 为准） | ±20% 内占比 = {within:.0%}")
+    print(f"\npred/true median = {med:.2f} (1.00 is exact) | share within ±20% = {within:.0%}")
     if med < 0.8:
-        print("→ 实时读数仍系统性偏低：把本表连同 tick 日志反馈")
+        print("→ live readings still systematically low: report this table along with the tick log")
     elif med > 1.25:
-        print("→ 实时读数系统性偏高：系数样本可能被异常调用污染")
+        print("→ live readings systematically high: coefficient samples may be polluted by anomalous calls")
     else:
-        print("→ 实时读数与真值一致 ✓")
+        print("→ live readings match ground truth ✓")
 
     if show_ticks:
         io_ticks = [t for t in ticks if t.get("src") == "io" and t.get("stream")]
@@ -143,14 +147,14 @@ def main():
             for t in ticks:
                 s = t.get("src")
                 src_count[s] = src_count.get(s, 0) + 1
-            print(f"\ntick 来源分布: {src_count}")
+            print(f"\ntick source distribution: {src_count}")
             tps = [t["tps"] for t in io_ticks if t.get("tps")]
-            print(f"io 流式 tick: n={len(tps)} 中位 {statistics.median(tps):.1f} t/s "
-                  f"p90 {sorted(tps)[int(len(tps)*0.9)]:.1f} 最大 {max(tps):.1f}")
+            print(f"io streaming ticks: n={len(tps)} median {statistics.median(tps):.1f} t/s "
+                  f"p90 {sorted(tps)[int(len(tps)*0.9)]:.1f} max {max(tps):.1f}")
             pipes = [t.get("pipe", 0) for t in io_ticks]
             if any(pipes):
-                print(f"清洗管道字节率: 中位 {statistics.median(pipes):.0f} B/s "
-                      f"最大 {max(pipes):.0f} B/s")
+                print(f"clean-pipe byte rate: median {statistics.median(pipes):.0f} B/s "
+                      f"max {max(pipes):.0f} B/s")
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 {
   "identifier": "default",
-  "description": "主窗口默认权限：允许事件监听/发送等核心能力",
+  "description": "Default permissions for the main window: allows core capabilities such as event listening and sending",
   "windows": ["main"],
   "permissions": [
     "core:default",

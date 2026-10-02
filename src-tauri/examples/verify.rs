@@ -1,6 +1,8 @@
-//! 验证工具：真实引擎（Engine+LiveIo，与面板同代码）+ 独立的原始每进程写字节采样，
-//! 输出 JSONL 供事后与 usage DB 的真实 token 对账，评估实时速度与总量口径的偏差。
-//! 用法：cargo run --example verify -- [秒数] [输出文件]
+//! Verification tool: the real engine (Engine+LiveIo, same code as the panel)
+//! + an independent raw per-process write-bytes sampler, emitting JSONL for
+//! afterwards reconciling against the real tokens in the usage DB and
+//! measuring how far live speed and total figures deviate.
+//! Usage: cargo run --example verify -- [seconds] [output file]
 #[path = "../src/metrics.rs"]
 mod metrics;
 #[path = "../src/liveio.rs"]
@@ -14,8 +16,9 @@ mod raw {
     use super::*;
     use super::liveio::platform;
 
-    /// 独立采样：枚举 CLI 进程 → pid → 累计写字节。
-    /// 复用 liveio 的平台原语（进程识别与面板同口径），但采样节奏独立于引擎
+    /// Independent sampling: enumerate CLI processes -> pid -> cumulative write bytes.
+    /// Reuses liveio's platform primitives (process identification identical
+    /// to the panel's), but the sampling cadence is independent of the engine
     pub fn sample_cli_writes() -> HashMap<u32, u64> {
         let mut out = HashMap::new();
         for pid in platform::discover_cli_pids() {
@@ -43,7 +46,7 @@ fn main() {
     let mut e = Engine::new();
     let mut li = liveio::LiveIo::new();
     let start = std::time::Instant::now();
-    eprintln!("verify: 采样 {}s → {}", secs, out_path);
+    eprintln!("verify: sampling {}s -> {}", secs, out_path);
 
     while start.elapsed().as_secs() < secs {
         let tick = std::time::Instant::now();
@@ -59,7 +62,7 @@ fn main() {
         let raw = raw::sample_cli_writes();
         let files = tracked_files_total();
 
-        // 每轮调用完成后的真值统计（落盘数据反推）
+        // Ground-truth stats for completed calls (back-computed from persisted data)
         for c in &new_calls {
             let line = serde_json::json!({
                 "kind": "call",
@@ -73,7 +76,8 @@ fn main() {
             });
             writeln!(out, "{}", line).ok();
         }
-        // 校准事件（字节侧对单次调用的估计与样本，含与显示同口径的清洗积分对账）
+        // Calibration event (byte-side per-call estimate and sample, including
+        // reconciliation with the same cleaned-integration figures the display uses)
         if let Some(cal) = &cal {
             let pred_tps = if cal.gen_ms > 0 && cal.bpt_now > 0.0 {
                 cal.clean_bytes / (cal.gen_ms as f64 / 1000.0) / cal.bpt_now
@@ -135,5 +139,5 @@ fn main() {
             std::thread::sleep(std::time::Duration::from_millis(500) - dt);
         }
     }
-    eprintln!("verify: 完成");
+    eprintln!("verify: done");
 }

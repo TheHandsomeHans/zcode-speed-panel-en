@@ -1,64 +1,64 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ZCode 速度仪表盘</title>
+    <title>ZCode Speed Panel</title>
   </head>
   <body>
     <div id="app">
       <header id="app-header" data-tauri-drag-region>
         <div class="brand">
           <img class="logo" src="/app-icon.png" alt="ZCode" />
-          <span>ZCode 速度仪表盘</span>
+          <span>ZCode Speed Panel</span>
         </div>
         <div class="status">
           <span id="live-dot" class="dot idle"></span>
-          <span id="live-text">待机</span>
+          <span id="live-text">Idle</span>
           <span class="sep">·</span>
           <span id="updated-at">--:--:--</span>
-          <div id="float-style" class="dropdown" title="悬浮窗样式">
+          <div id="float-style" class="dropdown" title="Floating window style">
             <button id="float-style-btn" class="ghost-btn" type="button" aria-haspopup="listbox" aria-expanded="false">
-              <span id="float-style-label">仪表悬浮窗</span>
+              <span id="float-style-label">Mini Gauge</span>
               <span class="caret">▾</span>
             </button>
-            <div id="float-style-list" class="dropdown-list" role="listbox" aria-label="悬浮窗样式">
-              <button type="button" role="option" data-value="pet">桌宠</button>
-              <button type="button" role="option" data-value="gauge">仪表悬浮窗</button>
-              <button type="button" role="option" data-value="pill">胶囊悬浮窗</button>
+            <div id="float-style-list" class="dropdown-list" role="listbox" aria-label="Floating window style">
+              <button type="button" role="option" data-value="pet">Pet</button>
+              <button type="button" role="option" data-value="gauge">Mini Gauge</button>
+              <button type="button" role="option" data-value="pill">Speed Pill</button>
             </div>
           </div>
           <button
             id="pet-last-toggle"
             class="ghost-btn pet-last-toggle"
             type="button"
-            title="桌宠气泡常驻显示两行（实时速度 / 上轮均速），待机时也显示，无需鼠标悬停；与桌宠右键菜单里的勾选是同一开关"
-          ><span class="pet-chk" aria-hidden="true"></span>常显上轮均速</button>
-          <!-- 设置：模块显隐与排序（齿轮用内联 SVG，同 ⟳ 按钮——符号字形居中不可靠） -->
+            title="Keep the pet bubble always showing two lines (realtime speed / last-call avg speed), visible even when idle — no hover required; this is the same toggle as the checkbox in the pet right-click menu"
+          ><span class="pet-chk" aria-hidden="true"></span>Always show last-call speed</button>
+          <!-- Settings: module visibility and ordering (the gear uses inline SVG, same as the ⟳ button — symbol glyphs center unreliably) -->
           <button
             id="btn-settings"
             class="ghost-btn settings-btn"
             type="button"
-            title="设置：勾选显示的模块、调整上下顺序（即时生效并记住）"
+            title="Settings: toggle visible modules, reorder top-to-bottom (applies instantly and is remembered)"
           >
             <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="currentColor">
               <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
             </svg>
           </button>
-          <button id="btn-float" class="ghost-btn accent-btn" title="收起为悬浮窗（置顶、可拖动；点窗口关闭按钮效果相同）">⧉ 收起为悬浮窗</button>
+          <button id="btn-float" class="ghost-btn accent-btn" title="Collapse to floating window (always on top, draggable; clicking the window close button does the same)">⧉ Collapse to floating window</button>
         </div>
-        <span id="win-controls" title="拖动顶栏移动窗口；双击顶栏最大化/还原">
-          <button id="wc-min" title="最小化">—</button>
-          <button id="wc-max" title="全屏 / 还原（mac）· 最大化 / 还原（Windows）">▢</button>
-          <button id="wc-close" title="收起为悬浮窗">✕</button>
+        <span id="win-controls" title="Drag the title bar to move the window; double-click to maximize/restore">
+          <button id="wc-min" title="Minimize">—</button>
+          <button id="wc-max" title="Fullscreen / restore (mac) · Maximize / restore (Windows)">▢</button>
+          <button id="wc-close" title="Collapse to floating window">✕</button>
         </span>
       </header>
 
       <main>
-        <!-- 模块显隐与排序（顶栏 ⚙ 设置）：每个模块包一层 module-wrap[data-module]，
-             main.ts 按 localStorage 配置（modules.v1）重排 DOM 顺序并隐藏未勾选的模块；
-             wrapper 为 display:contents 不参与布局——卡片仍是 main 的直接 flex 项，
-             卡片间距（gap 14px）与曲线卡的 flex:1 拉伸口径都不变 -->
+        <!-- Module visibility and ordering (header ⚙ settings): each module is wrapped in a module-wrap[data-module];
+             main.ts reorders the DOM and hides unchecked modules per the localStorage config (modules.v1);
+             the wrapper is display:contents and takes no part in layout — cards remain direct flex items of main,
+             and the card spacing (gap 14px) plus the chart card's flex:1 stretch semantics are unchanged -->
         <div class="module-wrap" data-module="gauges">
         <section class="cards">
           <div class="card gauge-card">
@@ -66,12 +66,12 @@
               id="btn-recal"
               class="ghost-btn recal-btn"
               type="button"
-              aria-label="重新校准"
-              title="重新校准：丢弃已学习的字节→token 系数样本，回到默认先验由后续调用重新收敛（换模型后实时读数异常时用；轮均速突变 3 倍以上会自动触发）"
+              aria-label="Recalibrate"
+              title="Recalibrate: discard all learned byte-to-token coefficient samples and return to the default prior so subsequent calls can re-converge (use when realtime readings are abnormal after switching models; auto-triggers when per-call avg speed jumps 3x or more)"
             >
-              <!-- 图标用内联 SVG：⟳ 一类符号字形在字体里墨迹相对字宽偏心，文字渲染无法可靠居中；
-                   取左右对称的双箭头循环（autorenew）而非单箭头 refresh——后者右侧实心箭头
-                   与左侧细弧墨迹失衡，几何包围盒虽居中、视觉仍偏右贴边 -->
+              <!-- The icon uses inline SVG: symbol glyphs like ⟳ have ink off-center relative to their advance width in fonts, so text rendering can't reliably center them;
+                   a left-right symmetric double-arrow loop (autorenew) is used instead of the single-arrow refresh — the latter's solid arrow on the right
+                   is imbalanced against the thin arc on the left, so although the geometric bounding box is centered it still looks right-shifted -->
               <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="currentColor">
                 <path class="recal-refresh" d="M12 6V3L8 7l4 4V8c2.21 0 4 1.79 4 4 0 .58-.13 1.13-.33 1.64l1.49 1.49C17.68 14.87 18 13.97 18 12c0-3.31-2.69-6-6-6zm0 10c-2.21 0-4-1.79-4-4 0-.58.13-1.13.33-1.64L6.84 8.87C6.32 9.73 6 10.63 6 11.6c0 3.31 2.69 6 6 6v3l4-4-4-4v3z"/>
                 <path class="recal-done" d="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
@@ -81,84 +81,84 @@
             <canvas
               id="g-last"
               class="corner-gauge"
-              title="上一轮调用速度：最近一次已完成调用（输出+思考 ÷ 纯生成时长，落盘口径）"
+              title="Last call speed: the most recent completed call ((output+thinking) / pure generation time, on-disk basis)"
             ></canvas>
-            <div class="sub" id="sub-current">等待数据…</div>
+            <div class="sub" id="sub-current">Waiting for data…</div>
           </div>
           <div class="card gauge-card">
             <canvas
               id="g-peak"
               class="corner-gauge corner-left"
-              title="近 7 天最高速度：近 7 个自然日（含今日，每日零点滑动过期）内有效输出 ≥300 token 且纯生成 ≥1s 的调用中最快一次（毫秒级小调用时间戳噪声大，不计入记录）"
+              title="Peak speed (last 7 days): the fastest single call among qualifying calls in the last 7 local calendar days (including today, sliding expiry at midnight each day) with effective output >=300 tokens and pure generation >=1s (sub-millisecond calls have noisy timestamps and are not recorded)"
             ></canvas>
             <canvas id="g-avg"></canvas>
             <canvas
               id="g-histavg"
               class="corner-gauge"
-              title="近 7 天平均速度：近 7 个自然日（含今日）内已完成调用 Σ(输出+思考) ÷ Σ纯生成时长（与今日平均同口径，不过滤，每日零点滑动过期）"
+              title="Historical average speed (last 7 days): Σ(output+thinking) / Σpure generation time of all completed calls in the last 7 local calendar days (including today, no filtering — same basis as today's average, sliding expiry at midnight each day)"
             ></canvas>
-            <div class="sub" id="sub-avg">等待数据…</div>
+            <div class="sub" id="sub-avg">Waiting for data…</div>
           </div>
           <div class="card gauge-card">
             <canvas id="g-total"></canvas>
-            <div class="sub" id="sub-total">等待数据…</div>
+            <div class="sub" id="sub-total">Waiting for data…</div>
           </div>
         </section>
 
-        <!-- 并发任务明细：≥2 个任务时出现（单任务时不占位）。属仪表盘模块（只在
-             其下方出现，不单独排序/开关）。一个 CLI 进程 = 一行；同进程内并行的
-             多个会话/子代理在字节层不可拆分，计为一行合计（标注会话数），按会话数
-             计入任务总数 -->
+        <!-- Concurrent task details: appears when ≥2 tasks (takes no space for a single task). Belongs to the Dashboard module (only
+             appears below it, not ordered/toggled separately). One CLI process = one row; multiple sessions/subagents running
+             in parallel within one process are inseparable at the byte level and count as one combined row (annotated with the
+             session count), contributing to the task total by session count -->
         <section class="card task-card" id="task-card" hidden>
           <div class="chart-head">
-            <span>并发任务（按 CLI 进程实测）</span>
-            <span class="dim">各行合计 = 当前速度表 · 同进程多会话计为一行</span>
+            <span>Concurrent tasks (measured per CLI process)</span>
+            <span class="dim">Each row's total = current speed panel · multiple sessions in one process count as one row</span>
           </div>
           <div id="task-list"></div>
         </section>
         </div>
 
-        <!-- 网速监控：整机接口实测速度 + 会话上传估算拆分。
-             按进程直测网络字节无公开原语（socket 不进进程 IO 计数、ESTATS 已坏），
-             口径分层：整机=真实 / 会话=token 估算（≈） -->
+        <!-- Network Monitor: system-wide measured interface speed + session upload estimate breakdown.
+             There is no public primitive for directly measuring network bytes per process (sockets don't count into process IO
+             counters and ESTATS is broken), so the semantics are layered: system-wide = real / session = token estimate (≈) -->
         <div class="module-wrap" data-module="net">
         <section class="card net-card" id="net-card" hidden>
           <div class="chart-head">
-            <span>网速监控</span>
-            <span class="dim" id="net-scope">整机实测</span>
+            <span>Network Monitor</span>
+            <span class="dim" id="net-scope">Whole machine (measured)</span>
           </div>
-          <!-- 单行三段：速度居左 · 进程连接数居中 · 今日上传/下载最右（窄窗自动换行） -->
+          <!-- One row, three parts: speed left · process connection count center · today's upload/download right (auto-wraps in narrow windows) -->
           <div class="net-body">
             <div class="net-speeds">
-              <div class="net-speed up" title="整机口径：本机全部应用（含系统/浏览器/代理隧道）的网络上传，非仅 ZCode。约 1 秒滑窗平均，单位为字节；全部非回环接口求和（虚拟网卡/VPN 隧道的流量内外层各计一次）。与任务管理器对比：任务管理器显示比特（×8 ≈ 字节）且 Wi-Fi 页仅统计所选适配器，读数对不上是口径差异。ZCode 的部分见连接归属与今日累计拆分">
+              <div class="net-speed up" title="Whole-machine basis: network upload from all applications on this machine (including system/browser/proxy tunnel), not just ZCode. Approx 1-second sliding window average, unit is bytes; summed across all non-loopback interfaces (virtual NIC/VPN tunnel traffic counted at both inner and outer layers). Compared to Task Manager: Task Manager shows bits (x8 approx bytes) and the Wi-Fi tab only counts the selected adapter — discrepancies are a basis difference. For ZCode-specific traffic, see the connection attribution and today's breakdown below">
                 <span class="net-arrow">↑</span>
                 <div class="net-speed-body">
                   <span class="net-val" id="net-up-bps">--</span>
-                  <span class="net-sub">整机上传 · 全部应用</span>
+                  <span class="net-sub">Upload (whole machine) · all apps</span>
                 </div>
               </div>
-              <div class="net-speed down" title="整机口径：本机全部应用（含系统/浏览器/代理隧道）的网络下载，非仅 ZCode。约 1 秒滑窗平均，单位为字节；全部非回环接口求和（虚拟网卡/VPN 隧道的流量内外层各计一次）。与任务管理器对比：任务管理器显示比特（×8 ≈ 字节）且 Wi-Fi 页仅统计所选适配器，读数对不上是口径差异。会话（模型输出）的估算值见今日下载一栏">
+              <div class="net-speed down" title="Whole-machine basis: network download from all applications on this machine (including system/browser/proxy tunnel), not just ZCode. Approx 1-second sliding window average, unit is bytes; summed across all non-loopback interfaces (virtual NIC/VPN tunnel traffic counted at both inner and outer layers). Compared to Task Manager: Task Manager shows bits (x8 approx bytes) and the Wi-Fi tab only counts the selected adapter — discrepancies are a basis difference. For session (model output) estimates, see the download row below">
                 <span class="net-arrow">↓</span>
                 <div class="net-speed-body">
                   <span class="net-val" id="net-down-bps">--</span>
-                  <span class="net-sub">整机下载 · 全部应用</span>
+                  <span class="net-sub">Download (whole machine) · all apps</span>
                 </div>
               </div>
             </div>
-            <div class="net-conns" id="net-conns" title="两组都是 ZCode 自身进程的连接（不含其他应用）：会话进程 = CLI（app-server），走对话 API 流量；桌面端 = ZCode 桌面端（Electron 主/渲染/GPU/工具进程），走遥测、更新等非对话流量。悬停下方两行可看每条连接的远端与归属进程">
-              <span class="net-conn-row" id="net-conn-cli" title="">ZCode 会话进程 <b id="net-cli-conns">0</b> 连接</span>
-              <span class="net-conn-row" id="net-conn-app" title="">ZCode 桌面端 <b id="net-app-conns">0</b> 连接</span>
+            <div class="net-conns" id="net-conns" title="Both groups are connections from ZCode's own processes (excluding other apps): session process = CLI (app-server), carrying conversation API traffic; desktop app = ZCode desktop (Electron main/renderer/GPU/utility processes), carrying telemetry, updates, and other non-conversation traffic. Hover over the two rows below to see each connection's remote endpoint and owning process">
+              <span class="net-conn-row" id="net-conn-cli" title="">ZCode session process <b id="net-cli-conns">0</b> connections</span>
+              <span class="net-conn-row" id="net-conn-app" title="">ZCode desktop app <b id="net-app-conns">0</b> connections</span>
             </div>
             <div class="net-today">
               <div class="net-today-row">
-                <span class="net-today-label">今日上传</span>
-                <span class="net-part">会话 ≈<b id="net-sess-up">--</b></span>
-                <span class="net-part" title="仅面板运行时段的接口计数差分累加，面板未运行时段不计入">整机 <b id="net-up-today">--</b></span>
+                <span class="net-today-label">Upload today</span>
+                <span class="net-part">Session approx <b id="net-sess-up">--</b></span>
+                <span class="net-part" title="Only counts interface counter deltas during the time the panel is running; periods when the panel is not running are not counted">Whole machine <b id="net-up-today">--</b></span>
               </div>
               <div class="net-today-row">
-                <span class="net-today-label">今日下载</span>
-                <span class="net-part">会话 ≈<b id="net-sess-down">--</b></span>
-                <span class="net-part" title="仅面板运行时段的接口计数差分累加，面板未运行时段不计入">整机 <b id="net-down-today">--</b></span>
+                <span class="net-today-label">Download today</span>
+                <span class="net-part">Session approx <b id="net-sess-down">--</b></span>
+                <span class="net-part" title="Only counts interface counter deltas during the time the panel is running; periods when the panel is not running are not counted">Whole machine <b id="net-down-today">--</b></span>
               </div>
             </div>
           </div>
@@ -168,76 +168,76 @@
         <div class="module-wrap" data-module="chart">
         <section class="card chart-card">
           <div class="chart-head">
-            <span id="chart-title">近 15 分钟输出速度（10 秒一档 · token/s，横轴为真实时刻）</span>
+            <span id="chart-title">Output speed — last 15 minutes (10s bins · token/s, x-axis is real time)</span>
             <span class="chart-head-right">
-              <!-- 峰值标签在时间范围下拉左侧；下拉两视图共用：切换拨杆只换序列，
-                   不改变统计范围 -->
-              <span id="chart-max" class="dim">峰值 0</span>
-              <div id="chart-window" class="dropdown" title="曲线时间范围（整体曲线与模型详情共用，默认 15 分钟，记住选择）">
+              <!-- Peak label sits left of the time-range dropdown; the dropdown is shared by both views: toggling only switches the
+                   series, not the stats range -->
+              <span id="chart-max" class="dim">Peak 0</span>
+              <div id="chart-window" class="dropdown" title="Chart time range (shared by Overall Chart and Model Details, default 15 minutes, choice is remembered)">
                 <button id="chart-window-btn" class="ghost-btn" type="button" aria-haspopup="listbox" aria-expanded="false">
-                  <span id="chart-window-label">15 分钟</span>
+                  <span id="chart-window-label">15 min</span>
                   <span class="caret">▾</span>
                 </button>
-                <div id="chart-window-list" class="dropdown-list" role="listbox" aria-label="曲线时间范围">
-                  <button type="button" role="option" data-value="15" class="selected">15 分钟</button>
-                  <button type="button" role="option" data-value="60">1 小时</button>
-                  <button type="button" role="option" data-value="360">6 小时</button>
-                  <button type="button" role="option" data-value="1440">24 小时</button>
+                <div id="chart-window-list" class="dropdown-list" role="listbox" aria-label="Chart time range">
+                  <button type="button" role="option" data-value="15" class="selected">15 min</button>
+                  <button type="button" role="option" data-value="60">1 hour</button>
+                  <button type="button" role="option" data-value="360">6 hours</button>
+                  <button type="button" role="option" data-value="1440">24 hours</button>
                 </div>
               </div>
-              <!-- 分段拨杆：整体曲线 / 模型详情两个视图互斥切换（记住选择）。
-                   文字分居左右，色块滑到激活一侧 -->
-              <button id="chart-view-toggle" class="view-toggle" type="button" role="switch" aria-checked="false" title="切换曲线卡视图：整体输出速度曲线 / 模型速度趋势（互斥显示，共用时间范围，记住选择）">
+              <!-- Segmented toggle: Overall Chart / Model Details are mutually exclusive views (choice remembered).
+                   The two labels sit at either side and the color block slides to the active one -->
+              <button id="chart-view-toggle" class="view-toggle" type="button" role="switch" aria-checked="false" title="Toggle chart card view: overall output speed chart / per-model speed trends (mutually exclusive, shared time range, choice is remembered)">
                 <span class="vt-knob" aria-hidden="true"></span>
-                <span class="vt-opt">整体曲线</span>
-                <span class="vt-opt">模型详情</span>
+                <span class="vt-opt">Overall Chart</span>
+                <span class="vt-opt">Model Details</span>
               </button>
             </span>
           </div>
           <canvas id="spark"></canvas>
-          <!-- 模型详情视图：图例 chips + 按模型折线 + 统计条，与 #spark 互斥 -->
+          <!-- Model details view: legend chips + per-model lines + summary bar, mutually exclusive with #spark -->
           <div id="model-view">
             <div id="model-legend"></div>
             <div id="model-chart-wrap">
               <canvas id="model-chart"></canvas>
-              <div id="model-empty">窗口内暂无调用数据</div>
+              <div id="model-empty">No call data in this window</div>
             </div>
             <div id="model-summary"></div>
           </div>
         </section>
         </div>
 
-        <!-- 全部模块都被隐藏时的占位（设置按钮在顶栏，始终可再打开） -->
-        <div id="modules-empty" hidden>所有模块都已隐藏 · 点顶栏 ⚙ 重新开启</div>
+        <!-- Placeholder shown when every module is hidden (the settings button is in the title bar and always reachable) -->
+        <div id="modules-empty" hidden>All modules are hidden · click the gear icon in the title bar to re-enable</div>
 
       <footer class="dim" id="statusbar">
-        <span id="st-dir">监控目录：…</span>
+        <span id="st-dir">Watched directory: …</span>
         <span id="st-calls"></span>
         <span id="st-sessions"></span>
         <span id="st-last"></span>
-        <span id="st-version" title="点击检查更新">v…</span>
+        <span id="st-version" title="Click to check for updates">v…</span>
       </footer>
       </main>
 
-      <!-- 悬浮窗·桌宠样式（默认）：精灵动画 + 头顶速度气泡，整块可拖动，右键出菜单 -->
+      <!-- Floating window · desktop pet style (default): sprite animation + speed bubble overhead, the whole block is draggable, right-click for the menu -->
       <div id="float-pet">
         <canvas id="pet-canvas"></canvas>
-        <button id="float-pet-cycle" class="float-expand ghost-btn" title="换一只宠物" style="right: 34px;">🔄</button>
-        <button id="float-pet-expand" class="float-expand ghost-btn" title="展开完整面板">⤢</button>
+        <button id="float-pet-cycle" class="float-expand ghost-btn" title="Switch pet" style="right: 34px;">🔄</button>
+        <button id="float-pet-expand" class="float-expand ghost-btn" title="Expand full panel">⤢</button>
       </div>
 
-      <!-- 悬浮窗·仪表样式：主环（实时）+ 右上角"上轮"小环（最近一轮已完成调用） -->
+      <!-- Floating window · mini gauge style: main ring (realtime) + "last call" ring at the top right (most recent completed call) -->
       <div id="float-gauge">
         <canvas id="mini-gauge"></canvas>
         <canvas
           id="mini-last"
           class="float-badge"
-          title="上轮均速：最近一次已完成调用（输出+思考 ÷ 纯生成时长，落盘口径）"
+          title="Last-call avg speed: the most recent completed call ((output+thinking) / pure generation time, on-disk basis)"
         ></canvas>
-        <button id="float-gauge-expand" class="float-expand ghost-btn" title="展开完整面板">⤢</button>
+        <button id="float-gauge-expand" class="float-expand ghost-btn" title="Expand full panel">⤢</button>
       </div>
 
-      <!-- 悬浮窗·胶囊样式：整块可拖动，⤢ 展开；第二行为上轮均速 -->
+      <!-- Floating window · speed pill style: whole block draggable, ⤢ expands; second line shows the last-call avg speed -->
       <div id="float-pill">
         <span id="float-dot" class="dot idle"></span>
         <div id="float-val">
@@ -247,68 +247,68 @@
             <span class="float-unit">t/s</span>
           </div>
           <div class="float-sub">
-            <span class="float-sub-label">上轮均速</span>
+            <span class="float-sub-label">Last-call avg</span>
             <span id="float-last">--</span>
             <span class="float-unit">t/s</span>
           </div>
         </div>
-        <button id="float-pill-expand" class="float-expand ghost-btn" title="展开完整面板">⤢</button>
+        <button id="float-pill-expand" class="float-expand ghost-btn" title="Expand full panel">⤢</button>
       </div>
 
-      <!-- 悬浮窗右键菜单：恢复窗体 / 退出；桌宠样式下多一项"常显上轮均速"勾选（CSS 按样式门控） -->
+      <!-- Floating window context menu: restore window / quit; the desktop pet style adds an "always show last-call avg speed" checkbox (gated by style in CSS) -->
       <div id="float-menu">
         <button
           id="float-menu-pet-last"
-          title="勾选后气泡常驻显示两行（实时速度 / 上轮均速），待机时也显示，无需鼠标悬停"
-        ><span class="pet-chk" aria-hidden="true"></span>常显上轮均速</button>
-        <button id="float-menu-restore">⤢ 恢复窗体</button>
-        <button id="float-menu-quit">✕ 退出程序</button>
+          title="When checked, the bubble always shows two lines (realtime speed / last-call avg speed), visible even when idle — no hover required"
+        ><span class="pet-chk" aria-hidden="true"></span>Always show last-call speed</button>
+        <button id="float-menu-restore">⤢ Restore window</button>
+        <button id="float-menu-quit">✕ Quit</button>
       </div>
 
-      <!-- mac 引导提示：应用常驻菜单栏（无 Dock 图标），窗口每次从隐藏到显示时出现，6 秒自动淡出 -->
-      <div id="tray-hint" title="点击关闭">应用常驻菜单栏 ↗ 点菜单栏图标可显示面板 / 退出</div>
+      <!-- mac onboarding hint: the app lives in the menu bar (no Dock icon); the hint appears each time the window goes from hidden to visible and auto-fades after 6 seconds -->
+      <div id="tray-hint" title="Click to close">App lives in the menu bar — click the menu bar icon to show the panel / quit</div>
 
-      <!-- 设置弹窗：模块显隐与排序 + 自动启动（顶栏 ⚙ 打开；复用弹窗的遮罩+卡片风格）。
-           行由 main.ts 按 MODULE_DEFS 动态渲染：自绘勾选框（.pet-chk 同款）+ ↑↓ 排序，
-           变更即时生效并存 localStorage（modules.v1）；自动启动三态行也由 main.ts 渲染，
-           读写后端命令（Windows 注册表 / mac LaunchAgent 即事实源，不存 localStorage） -->
+      <!-- Settings modal: module visibility and ordering + auto-start (opened from the header ⚙; reuses the modal's backdrop+card style).
+           Rows are rendered dynamically by main.ts from MODULE_DEFS: custom checkboxes (same style as .pet-chk) + ↑↓ reordering,
+           changes take effect immediately and are stored in localStorage (modules.v1); the three auto-start option rows are also
+           rendered by main.ts, reading/writing backend commands (the Windows registry / mac LaunchAgent is the source of truth, not localStorage) -->
       <div id="settings-modal">
         <div id="settings-modal-box">
           <div class="model-modal-head">
-            <span class="model-modal-title">设置</span>
-            <button id="settings-reset" class="ghost-btn" type="button" title="恢复默认：仪表盘 / 网速监控 / 输出速度曲线全部显示，顺序还原（自动启动不受影响）">恢复默认</button>
-            <button id="settings-close" class="ghost-btn" type="button" title="关闭">✕</button>
+            <span class="model-modal-title">Settings</span>
+            <button id="settings-reset" class="ghost-btn" type="button" title="Restore defaults: Speed Panel / Network Monitor / Output speed curve all shown, order restored (auto-start is not affected)">Restore defaults</button>
+            <button id="settings-close" class="ghost-btn" type="button" title="Close">✕</button>
           </div>
-          <div class="settings-section-title">显示模块</div>
-          <div id="settings-hint" class="dim">勾选要显示的模块；↑↓ 调整顺序（列表从上到下 = 面板从上到下）。即时生效并记住。</div>
+          <div class="settings-section-title">Visible modules</div>
+          <div id="settings-hint" class="dim">Check modules to show; up/down arrows to reorder (top of list = top of panel). Applies instantly and is remembered.</div>
           <div id="settings-modules"></div>
-          <div class="settings-section-title">自动启动</div>
+          <div class="settings-section-title">Auto-start</div>
           <div id="settings-autostart"></div>
-          <div id="settings-autostart-note" class="dim">开机自启 = 登录后按上次形态常驻启动；跟随 ZCode = 登录后静默待命（仅托盘），检测到 ZCode 正在运行时自动亮出面板。面板手动退出后不再自动复活，重新登录或手动打开恢复。</div>
+          <div id="settings-autostart-note" class="dim">Start on boot = launch in last-used mode after login; Follow ZCode = wait silently after login (tray only), auto-show the panel when ZCode is detected running. After manually quitting the panel, it will not auto-resurrect — log in again or open it manually to restore.</div>
         </div>
       </div>
 
-      <!-- 应用内更新：发现新版本时的提示卡片（右下角，版本号在 footer 最右、点击即检查）；
-           下载进度与安装状态都在这张卡上 -->
-      <div id="update-card" role="dialog" aria-label="应用更新">
+      <!-- In-app update: notice card shown when a new version is found (bottom right; the version number sits at the footer's far right and click checks for updates);
+           both download progress and install state live on this card -->
+      <div id="update-card" role="dialog" aria-label="App update">
         <div class="update-head">
-          <span>🆕 发现新版本 <b id="update-version"></b></span>
-          <button id="update-close" title="暂不更新（下次检查到更新仍会提醒）">✕</button>
+          <span>🆕 New version found <b id="update-version"></b></span>
+          <button id="update-close" title="Remind me later (will still notify on next check)">✕</button>
         </div>
-        <div class="update-sub">当前 <span id="update-current"></span> · <a id="update-link" title="在浏览器中打开更新说明">更新内容 ↗</a></div>
+        <div class="update-sub">Current <span id="update-current"></span> · <a id="update-link" title="Open release notes in browser">Release notes ↗</a></div>
         <pre id="update-notes" class="update-notes"></pre>
         <div id="update-progress" class="update-progress">
           <div class="update-bar"><i id="update-bar-fill"></i></div>
           <span id="update-progress-text"></span>
         </div>
         <div class="update-actions">
-          <button id="update-install" class="ghost-btn accent-btn" type="button">⤓ 立即更新</button>
-          <button id="update-manual" class="ghost-btn" type="button" title="在浏览器打开本版本页面，自行下载安装">手动下载 ↗</button>
+          <button id="update-install" class="ghost-btn accent-btn" type="button">⤓ Update now</button>
+          <button id="update-manual" class="ghost-btn" type="button" title="Open this version's page in the browser and download/install manually">Manual download ↗</button>
           <span id="update-status"></span>
         </div>
       </div>
 
-      <!-- 手动检查更新的轻提示（已是最新/失败），自动消失 -->
+      <!-- Light toast for manual update checks (already up to date / failed), auto-dismisses -->
       <div id="update-toast"></div>
     </div>
     <script type="module" src="/src/main.ts"></script>

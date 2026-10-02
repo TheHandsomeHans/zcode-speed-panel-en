@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
-"""事后对账：verify-log.jsonl（面板同款引擎的实时显示 + 原始每进程写字节）
-× usage DB（对话结束后落盘的真实 token），评估：
-  1) 实时速度显示的准确度（逐调用 + 全窗积分）
-  2) 字节→token 自校准系数受多进程噪声污染的程度
-  3) 总量链路：面板最终值 vs 落盘重算
+"""Post-hoc reconciliation: verify-log.jsonl (live display from the panel's own
+engine + raw per-process written bytes) × usage DB (true tokens persisted after
+each conversation ends), evaluating:
+  1) accuracy of the live speed display (per call + whole-window integration)
+  2) how much the byte→token self-calibration coefficient is polluted by
+     multi-process noise
+  3) totals chain: panel final value vs recomputation from persisted data
 """
 import json, sqlite3, sys, datetime, zoneinfo
 from pathlib import Path
@@ -16,27 +18,27 @@ MY_SESS = sys.argv[2] if len(sys.argv) > 2 else None
 ticks = [json.loads(l) for l in LOG.read_text(encoding="utf-8").splitlines() if l.strip()]
 t0, t1 = ticks[0]["t"], ticks[-1]["t"]
 dur_s = (t1 - t0) / 1000
-print(f"采样窗: {datetime.datetime.fromtimestamp(t0/1000, TZ):%H:%M:%S} → "
-      f"{datetime.datetime.fromtimestamp(t1/1000, TZ):%H:%M:%S}  ({dur_s:.0f}s, {len(ticks)} 拍)")
+print(f"Sample window: {datetime.datetime.fromtimestamp(t0/1000, TZ):%H:%M:%S} → "
+      f"{datetime.datetime.fromtimestamp(t1/1000, TZ):%H:%M:%S}  ({dur_s:.0f}s, {len(ticks)} ticks)")
 
-# ---- 原始序列 ----
+# ---- Raw series ----
 raw_pids = {}   # pid -> [(t, bytes)]
 files = []      # [(t, total)]
 for tk in ticks:
     files.append((tk["t"], tk["files"]))
     for pid, b in tk["raw"].items():
         raw_pids.setdefault(int(pid), []).append((tk["t"], b))
-print(f"观测到 CLI 进程数: {len(raw_pids)}")
+print(f"CLI processes observed: {len(raw_pids)}")
 
 def series_delta(series, w0, w1):
-    """与面板相同的窗口重叠规则: ct>=w0 且 pt<=w1 的增量求和"""
+    """Same window-overlap rule as the panel: sum deltas where ct>=w0 and pt<=w1"""
     acc = 0.0
     for (pt, pv), (ct, cv) in zip(series, series[1:]):
         if ct >= w0 and pt <= w1:
             acc += max(0, cv - pv)
     return acc
 
-# ---- 落盘的真实调用（窗口内完成）----
+# ---- True calls persisted to disk (completed within the window) ----
 con = sqlite3.connect(f"file:{DB.as_posix()}?mode=ro", uri=True)
 cur = con.cursor()
 cur.execute("""SELECT id, session_id, completed_at,
@@ -46,10 +48,10 @@ cur.execute("""SELECT id, session_id, completed_at,
                FROM model_usage WHERE status='completed' AND completed_at > ? AND completed_at <= ?
                ORDER BY completed_at""", (t0 - 1000, t1 + 1000))
 calls = cur.fetchall()
-print(f"窗内落盘调用: {len(calls)} 次, 真实生成 token(out+rea) 合计 {sum(c[4]+c[5] for c in calls)}")
+print(f"Calls persisted in window: {len(calls)}, true generated tokens (out+rea) total {sum(c[4]+c[5] for c in calls)}")
 
-# ---- 逐调用对账 ----
-print("\n[逐调用] 完成时刻  会话(尾4)  out+rea   gen_s  真实tps | 面板bpt  干净bpt  污染占比 | 显示均tps(覆盖率)")
+# ---- Per-call reconciliation ----
+print("\n[Per call] done at   session(last4)  out+rea   gen_s  true tps | panel bpt  clean bpt  pollution | disp mean tps (coverage)")
 rows = []
 for cid, sess, comp, gen, out, rea, inp in calls:
     eff = out + rea
@@ -61,15 +63,15 @@ for cid, sess, comp, gen, out, rea, inp in calls:
     total_b = sum(per_pid.values())
     file_b = series_delta(files, w0, w1)
     top_pid, top_b = max(per_pid.items(), key=lambda kv: kv[1]) if per_pid else (None, 0.0)
-    # 面板口径 bpt（全进程求和 − 落盘）
+    # panel-methodology bpt (sum over all processes − persisted)
     panel_bpt = (total_b - file_b) / eff if eff and total_b > file_b else None
     if panel_bpt is not None:
         panel_bpt = min(max(panel_bpt, 400), 8000)
-    # 干净口径 bpt（只算最大字节进程 − 落盘）
+    # clean-methodology bpt (only the largest-byte process − persisted)
     clean_bpt = (top_b - file_b) / eff if eff and top_b > file_b else None
     others_b = total_b - top_b
     poll = others_b / total_b if total_b else 0
-    # 该调用流式区间内面板显示的速度均值与覆盖率
+    # mean and coverage of the panel's displayed speed during the call's streaming interval
     disp = [(tk["t"], tk["live"]["tps"]) for tk in ticks
             if w0 <= tk["t"] <= w1 and tk["live"]["stream"]]
     cov = len(disp) / max(1, sum(1 for tk in ticks if w0 <= tk["t"] <= w1))
@@ -86,20 +88,20 @@ def med(xs):
     xs = [x for x in xs if x is not None]
     return st.median(xs) if xs else float("nan")
 
-print(f"\n[校准系数] 面板bpt中位数={med([r[5] for r in rows]):.0f}  "
-      f"干净bpt中位数={med([r[6] for r in rows]):.0f}  (默认1600, 钳位[400,8000])")
-print(f"[串扰] 非归属进程字节占比中位数={med([r[7] for r in rows]):.0%}")
+print(f"\n[Calibration coefficient] panel bpt median={med([r[5] for r in rows]):.0f}  "
+      f"clean bpt median={med([r[6] for r in rows]):.0f}  (default 1600, clamped to [400,8000])")
+print(f"[Crosstalk] median share of bytes from non-owning processes={med([r[7] for r in rows]):.0%}")
 
-# ---- 全窗积分：显示速度 × 时间 vs 落盘真实 ----
+# ---- Whole-window integration: displayed speed × time vs persisted truth ----
 integ = sum(tk["live"]["tps"] * 0.5 for tk in ticks[1:] if tk["live"]["stream"])
 true_sum = sum(r[2] for r in rows)
-print(f"\n[积分对账] 显示速度积分≈{integ:.0f} tok  vs 窗内落盘真实 {true_sum} tok  "
-      f"偏差 {(integ-true_sum)/true_sum if true_sum else 0:+.1%}")
+print(f"\n[Integration reconciliation] displayed-speed integral≈{integ:.0f} tok  vs true persisted in window {true_sum} tok  "
+      f"deviation {(integ-true_sum)/true_sum if true_sum else 0:+.1%}")
 mine = [r for r in rows if MY_SESS and r[1] == MY_SESS[-4:]]
 if mine:
-    print(f"  仅本会话({MY_SESS[-4:]}): {len(mine)} 次 {sum(r[2] for r in mine)} tok")
+    print(f"  This session only ({MY_SESS[-4:]}): {len(mine)} calls, {sum(r[2] for r in mine)} tok")
 
-# ---- 总量链路：最后一拍面板值 vs 此刻落盘重算 ----
+# ---- Totals chain: panel value at the last tick vs recomputation from persisted data ----
 last = ticks[-1]["snap"]
 cur.execute("""SELECT COALESCE(SUM(output_tokens),0), COALESCE(SUM(reasoning_tokens),0),
                COALESCE(SUM(input_tokens),0), COALESCE(SUM(cache_creation_input_tokens),0),
@@ -107,7 +109,7 @@ cur.execute("""SELECT COALESCE(SUM(output_tokens),0), COALESCE(SUM(reasoning_tok
                WHERE status='completed' AND completed_at >= (
                  SELECT MIN(completed_at) FROM model_usage WHERE completed_at >= ?
                  )""", (t0 - 86_400_000,))
-# 用与面板一致的"今日零点"口径
+# uses the panel's own "today at midnight" measurement methodology
 import time
 local_mid = int(datetime.datetime.combine(datetime.datetime.fromtimestamp(t1/1000, TZ).date(),
                                           datetime.time.min, tzinfo=TZ).timestamp() * 1000)
@@ -118,11 +120,11 @@ cur.execute("""SELECT COALESCE(SUM(output_tokens),0), COALESCE(SUM(reasoning_tok
 o, r, i, cc, cr, n = cur.fetchone()
 panel_total = last["out"] + last["rea"] + last["inp"] + last["cc"]
 disk_total = o + r + i + cc
-print(f"\n[总量链路] 采样末拍(引擎聚合) = {panel_total}  vs 落盘重算(同口径SQL) = {disk_total}  "
-      f"差 {panel_total - disk_total}  ({(panel_total-disk_total)/disk_total:+.4%})")
-print(f"  明细: 引擎 out={last['out']} rea={last['rea']} inp={last['inp']} calls={last['calls']}"
-      f"  | 磁盘 out={o} rea={r} inp={i} calls={n}")
+print(f"\n[Totals chain] last sampled tick (engine aggregate) = {panel_total}  vs recomputed from disk (same-methodology SQL) = {disk_total}  "
+      f"diff {panel_total - disk_total}  ({(panel_total-disk_total)/disk_total:+.4%})")
+print(f"  detail: engine out={last['out']} rea={last['rea']} inp={last['inp']} calls={last['calls']}"
+      f"  | disk out={o} rea={r} inp={i} calls={n}")
 cur.execute("""SELECT SUM(computed_total_tokens) FROM model_usage
                WHERE status='completed' AND completed_at >= ? AND completed_at <= ?""", (local_mid, t1))
-print(f"  官方 computed_total(不含思考) = {cur.fetchone()[0]}  面板多计的思考 = {last['rea']}")
+print(f"  official computed_total (excl. reasoning) = {cur.fetchone()[0]}  panel's extra reasoning tokens = {last['rea']}")
 con.close()

@@ -1,59 +1,76 @@
-//! 网速监控：整机速度/当日总量（真实）+ 会话流量估算拆分。
+//! Network speed monitoring: system-wide speed / daily totals (real) + session traffic estimate breakdown.
 //!
-//! ## 分层口径（为什么不能按进程直测网络字节）
+//! ## Layered methodology (why per-process network bytes cannot be measured directly)
 //!
-//! 2026-09-18 本机实验（详见 docs/key-rules.md #15）：
-//! - **Winsock 收发字节不进 `GetProcessIoCounters` 的任何计数**（20MB 下载期间
-//!   Read 仅 7.8KB，Write 12MB 是落盘镜像）——进程 IO 计数器只含文件/管道/
-//!   设备，liveio 的流式测速因此天然不受网络污染；
-//! - **TCP ESTATS（`SetPerTcpConnectionEStats`）已坏**：对所有连接（含本进程
-//!   自有的）返回 ERROR_NOT_SUPPORTED，管理员也一样；
-//! - ETW 内核网络事件需要管理员。
+//! 2026-09-18 local experiments (see docs/key-rules.md #15):
+//! - **Winsock send/receive bytes never enter any `GetProcessIoCounters` counter**
+//!   (during a 20MB download, Read was only 7.8KB, and the 12MB of Write was the
+//!   on-disk mirror) — process IO counters cover only files/pipes/devices, so
+//!   liveio's streaming speed measurement is naturally free of network pollution;
+//! - **TCP ESTATS (`SetPerTcpConnectionEStats`) is broken**: it returns
+//!   ERROR_NOT_SUPPORTED for every connection (including this process's own),
+//!   even when running as administrator;
+//! - ETW kernel network events require administrator.
 //!
-//! => 非管理员下两平台都没有"按进程的网络收发字节"公开原语。本模块按两层
-//! 诚实分层（曾有第三层"快照工件真实下界"，随 ZCode 下线快照功能一并移除）：
+//! => Without admin, neither platform exposes a public primitive for
+//! "per-process network send/receive bytes". This module is honestly layered
+//! in two tiers (a third tier, "real lower bound from snapshot artifacts",
+//! once existed and was removed along with ZCode's retired snapshot feature):
 //!
-//! 1. **整机上传/下载（真实值）**：接口计数器求和（Windows `GetIfTable` 的
-//!    32 位 octets 做模差；macOS `getifaddrs` 的 ifi_*bytes），均排除回环。
-//!    速度 = ~1s 滑窗差分（对齐任务管理器 ~1s 的刷新节奏）；当日累计跨重启
-//!    持久化（`speed-panel-net.json`）。
-//!    注意：本机若走本地代理（ZCode → 127.0.0.1 代理进程 → 外网），整机口径
-//!    含代理隧道加密开销、且混合其他应用流量。
-//! 2. **会话流量（估算 ≈）**：usage 库 token 数 × 字节系数（CLI 进程承载的
-//!    API 对话流量；请求体 ≈ input × 5 B/token、流式响应 ≈ output × 8
-//!    B/token，量级参考值，前端带 ≈ 标注）。
-//! 3. **ZCode 连接归属（真实值，仅 Windows）**：TCP 连接表（OWNER_PID）按
-//!    进程分组——命令行含 `zcode.cjs` 的 CLI 进程 = 会话组（API 流量），其余
-//!    `zcode.exe`（Electron 桌面端主/渲染/工具进程）= 非会话组（遥测等
-//!    非对话流量），各组显示 ESTABLISHED 连接数与远端。
+//! 1. **System-wide upload/download (real values)**: sum of interface counters
+//!    (Windows `GetIfTable` 32-bit octets with modular delta; macOS
+//!    `getifaddrs` ifi_*bytes), loopback excluded in both. Speed = ~1s
+//!    sliding-window delta (aligned with Task Manager's ~1s refresh cadence);
+//!    daily totals persist across restarts (`speed-panel-net.json`).
+//!    Note: if the machine goes through a local proxy (ZCode -> 127.0.0.1 proxy
+//!    process -> internet), the system-wide figure includes proxy tunnel
+//!    encryption overhead and mixes in other apps' traffic.
+//! 2. **Session traffic (estimated ~=)**: usage DB token counts x byte
+//!    coefficient (API conversation traffic carried by the CLI process;
+//!    request body ~= input x 5 B/token, streaming response ~= output x 8
+//!    B/token — order-of-magnitude reference values, marked with ~= on the
+//!    frontend).
+//! 3. **ZCode connection attribution (real values, Windows only)**: the TCP
+//!    connection table (OWNER_PID) grouped by process — CLI processes whose
+//!    command line contains `zcode.cjs` = session group (API traffic); other
+//!    `zcode.exe` processes (Electron desktop main/renderer/utility processes)
+//!    = non-session group (telemetry and other non-conversation traffic).
+//!    Each group shows its ESTABLISHED connection count and remotes.
 
 use chrono::{Datelike, Local};
 use serde::Serialize;
 use std::collections::{HashMap, VecDeque};
 use std::time::{Duration, Instant};
 
-/// 整机速度滑窗（对齐任务管理器 ~1s 的刷新节奏；短窗读数比长窗更跳，属预期）
+/// System-wide speed sliding window (aligned with Task Manager's ~1s refresh
+/// cadence; short windows read jumpier than long ones — expected)
 const NET_WINDOW_MS: i64 = 1_000;
-/// 整机采样环容量（~4.5min @700ms）
+/// System-wide sampling ring capacity (~4.5min @700ms)
 const NET_RING_CAP: usize = 400;
-/// 进程分组刷新周期（Toolhelp + 命令行读取，不逐拍）
+/// Process-group refresh period (Toolhelp + command line reads; not every tick)
 const PROC_REFRESH_EVERY: Duration = Duration::from_secs(5);
-/// 当日累计落盘节流（退出时另有强制保存）
+/// Daily-total disk-save throttle (a forced save also happens on exit)
 const NET_SAVE_EVERY: Duration = Duration::from_secs(30);
 
 
-/// 会话上传估算系数（字节/token）：请求体为 JSON 转义后的**未缓存**提示
-/// 增量（实测 98% 缓存命中下整机上传仅数十 KB——缓存命中的提示部分不重发），
-/// 英文/代码 ~4 字符/token + 转义开销，取 5。量级参考值（前端带 ≈ 标注）
+/// Session upload estimate coefficient (bytes/token): the request body is the
+/// JSON-escaped **uncached** prompt delta (measured: with 98% cache hits,
+/// system-wide upload was only tens of KB — cached prompt parts are not
+/// resent), English/code ~4 chars/token plus escaping overhead, hence 5.
+/// Order-of-magnitude reference value (the frontend marks it with ~=)
 pub const SESS_UP_BPT: f64 = 5.0;
-/// 会话下载估算系数：SSE 事件流密度。2026-09-18 实测标定：流式期整机下载
-/// ÷ token ≈ 731 B/token（含其他应用流量的上界）、UI 管道系数 bpt≈320
-/// （下界），取 400 居中。量级参考值
+/// Session download estimate coefficient: SSE event stream density.
+/// 2026-09-18 calibration: during streaming, system-wide download / tokens
+/// ~= 731 B/token (upper bound, includes other apps' traffic); UI pipeline
+/// coefficient bpt~=320 (lower bound); 400 chosen in between.
+/// Order-of-magnitude reference value
 pub const SESS_DOWN_BPT: f64 = 400.0;
 
-/// 会话流量估算（纯函数）。上传分子用**未缓存提示**（input 已含缓存命中
-/// 部分，缓存命中不重发——按全量重发估算会虚高数十倍，实测整机当日上传
-/// 仅数十 KB 可证）；output = 输出+思考 token
+/// Session traffic estimate (pure function). The upload numerator uses
+/// **uncached prompt** tokens (input already includes cache-hit tokens, and
+/// cache hits are not resent — estimating from the full prompt would inflate
+/// the result tens of times, as evidenced by measured daily system-wide
+/// upload of only tens of KB); output = output + thinking tokens
 pub fn sess_bytes_est(uncached_input_tokens: u64, output_tokens: u64) -> (u64, u64) {
     (
         (uncached_input_tokens as f64 * SESS_UP_BPT) as u64,
@@ -61,9 +78,11 @@ pub fn sess_bytes_est(uncached_input_tokens: u64, output_tokens: u64) -> (u64, u
     )
 }
 
-/// 接口计数器差分（纯函数，可测）：wrap>0 时按模数做回绕差分（Windows
-/// 32 位 octets），wrap=0 时为裸差分（mac 64 位）并对回退钳 0（计数器重置）。
-/// 单接口单拍增量超过 2^31 视为异常（重置/索引复用），钳 0 防假流量
+/// Interface counter delta (pure function, testable): when wrap>0, a
+/// wraparound delta modulo the wrap value (Windows 32-bit octets); when
+/// wrap=0, a plain delta (mac 64-bit) with regressions clamped to 0
+/// (counter resets). A per-interface per-tick delta above 2^31 is treated
+/// as anomalous (reset/index reuse) and clamped to 0 to prevent phantom traffic
 pub(crate) fn wrap_delta(new: u64, old: u64, wrap: u64) -> u64 {
     let d = if wrap > 0 {
         ((new as i64 - old as i64).rem_euclid(wrap as i64)) as u64
@@ -77,37 +96,40 @@ pub(crate) fn wrap_delta(new: u64, old: u64, wrap: u64) -> u64 {
     }
 }
 
-/// 每拍产出的网络监控快照（build_payload 填入 Snapshot 推送前端）
+/// Network monitoring snapshot produced every tick (build_payload puts it into Snapshot for the frontend)
 #[derive(Clone, Debug, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NetNow {
-    /// 整机接口计数是否可用（stub 平台 false）
+    /// Whether system-wide interface counters are available (false on stub platforms)
     pub available: bool,
     pub up_bps: f64,
     pub down_bps: f64,
-    /// 整机当日累计（真实，跨重启持久化续算）
+    /// System-wide daily totals (real; persisted and continued across restarts)
     pub up_today: u64,
     pub down_today: u64,
-    /// 连接归属是否可用（仅 Windows）
+    /// Whether connection attribution is available (Windows only)
     pub conns_available: bool,
-    /// 会话组（CLI 进程）去重后的 ESTABLISHED 远端条数
+    /// Deduplicated ESTABLISHED remote count of the session group (CLI processes)
     pub cli_conns: u32,
-    /// 非会话组（Electron 桌面端进程）去重后的远端条数
+    /// Deduplicated remote count of the non-session group (Electron desktop processes)
     pub app_conns: u32,
-    /// 两组的连接明细（远端 + 归属 pid + 进程类型标签，按远端+pid 去重排序；
-    /// tooltip 逐条展示"哪个进程连了哪里"）
+    /// Connection details of both groups (remote + owning pid + process type
+    /// label, deduplicated and sorted by remote+pid; the tooltip lists every
+    /// entry showing "which process connected where")
     pub cli_conn_list: Vec<crate::metrics::ConnStat>,
     pub app_conn_list: Vec<crate::metrics::ConnStat>,
 }
 
-// ============ 平台原语（win / mac / stub 三份，对外统一 netio::platform::*） ============
+// ============ Platform primitives (three variants: win / mac / stub, unified externally as netio::platform::*) ============
 
 pub mod platform {
-    /// Windows：GetIfTable 求和接口 octets（32 位计数器，调用侧做模差）；
-    /// GetExtendedTcpTable (OWNER_PID) 枚举 v4+v6 连接按进程分组；
-    /// Toolhelp + PEB 命令行区分 CLI（zcode.cjs）与 Electron 桌面端。
-    /// 进程/命令行识别口径与 liveio::platform::win 一致（两处独立实现：
-    /// liveio 只发现 CLI 进程，这里还要拿"其余 zcode.exe"做非会话组）
+    /// Windows: GetIfTable sums interface octets (32-bit counters; the caller
+    /// applies the modular delta); GetExtendedTcpTable (OWNER_PID) enumerates
+    /// v4+v6 connections grouped by process; Toolhelp + PEB command line
+    /// distinguish CLI (zcode.cjs) from the Electron desktop app.
+    /// Process/command line identification matches liveio::platform::win (two
+    /// independent implementations: liveio only discovers CLI processes, while
+    /// this one also needs "the other zcode.exe" for the non-session group)
     #[cfg(windows)]
     mod win {
         use std::collections::{HashMap, HashSet};
@@ -168,8 +190,9 @@ pub mod platform {
         const PROCESS_QUERY_LIMITED: u32 = 0x1410;
         const TH32CS_SNAPPROCESS: u32 = 2;
 
-        /// MIB_IFROW 镜像（布局自 NT4 起未变；关键字段偏移编译期钉死）。
-        /// 仅用 dwType/dwInOctets/dwOutOctets，但表布局需要完整 sizeof
+        /// MIB_IFROW mirror (layout unchanged since NT4; key field offsets
+        /// pinned at compile time). Only dwType/dwInOctets/dwOutOctets are
+        /// used, but the table layout requires the full sizeof
         #[repr(C)]
         struct MibIfRow {
             wsz_name: [u16; 256],
@@ -208,11 +231,13 @@ pub mod platform {
         /// IF_TYPE_SOFTWARE_LOOPBACK
         const IF_TYPE_LOOPBACK: u32 = 24;
 
-        /// 接口计数器回绕模数：dwIn/dwOutOctets 为 32 位，逐接口做模 2^32 差分
+        /// Interface counter wraparound modulus: dwIn/dwOutOctets are 32-bit; per-interface delta modulo 2^32
         pub const NET_COUNTER_WRAP: u64 = 1 << 32;
 
-        /// 全部非回环接口的计数行：(接口索引, 累计上传, 累计下载)。
-        /// 回绕修正由调用侧逐接口差分（各接口回绕时机不同，先求和再差分会错）
+        /// Counter rows of all non-loopback interfaces: (interface index,
+        /// total uploaded, total downloaded). Wraparound correction is done
+        /// by the caller with per-interface deltas (each interface wraps at a
+        /// different time; summing first and differencing later would be wrong)
         pub fn net_ifaces() -> Option<Vec<(String, u64, u64)>> {
             unsafe {
                 let mut size = 0u32;
@@ -274,7 +299,7 @@ pub mod platform {
             format!("{}.{}.{}.{}", v & 0xff, (v >> 8) & 0xff, (v >> 16) & 0xff, (v >> 24) & 0xff)
         }
 
-        /// 未压缩 IPv6 文本（::ffff: 映射地址也按完整形式展示——仅 tooltip 用）
+        /// Uncompressed IPv6 text (::ffff: mapped addresses are also shown in full form — tooltip only)
         fn ipv6(b: &[u8; 16]) -> String {
             let mut s = String::new();
             for i in 0..8 {
@@ -286,27 +311,29 @@ pub mod platform {
             s
         }
 
-        /// 命令行 → 进程类型标签（Electron 壳的 --type 参数区分各子进程；
-        /// CLI 判定在前，渲染进程命令行里不会出现 zcode.cjs）
+        /// Command line -> process type label (the Electron shell's --type
+        /// argument distinguishes child processes; the CLI check comes first
+        /// because zcode.cjs never appears in a renderer's command line)
         pub(crate) fn proc_label(cmd: &str) -> &'static str {
             if cmd.contains("zcode.cjs") {
-                "CLI 会话进程"
+                "CLI session process"
             } else if cmd.contains("crashpad") {
-                "崩溃报告进程"
+                "crash reporter process"
             } else if cmd.contains("--type=renderer") {
-                "渲染进程"
+                "renderer process"
             } else if cmd.contains("--type=gpu-process") {
-                "GPU 进程"
+                "GPU process"
             } else if cmd.contains("--type=utility") {
-                "工具进程"
+                "utility process"
             } else {
-                "主进程"
+                "main process"
             }
         }
 
-        /// ZCode 相关进程的 ESTABLISHED 连接（远端, 归属 pid），按
-        /// (cli_pids, app_pids) 两组返回（各自按 remote+pid 去重、排序）。
-        /// 连接表读不到时返回 None（连接归属不可用）
+        /// ESTABLISHED connections of ZCode-related processes (remote,
+        /// owning pid), returned as two groups (cli_pids, app_pids), each
+        /// deduplicated and sorted by remote+pid. Returns None when the
+        /// connection table cannot be read (connection attribution unavailable)
         pub fn zcode_conns(
             cli_pids: &HashMap<u32, String>,
             app_pids: &HashMap<u32, String>,
@@ -369,8 +396,8 @@ pub mod platform {
             Some((sort(cli), sort(app)))
         }
 
-        /// 与 liveio::platform::win 相同的 PEB → ProcessParameters →
-        /// CommandLine(UNICODE_STRING @ 0x70) 读取链
+        /// The same PEB -> ProcessParameters -> CommandLine(UNICODE_STRING
+        /// @ 0x70) read chain as liveio::platform::win
         fn process_command_line(pid: u32) -> Option<String> {
             unsafe {
                 let h = OpenProcess(PROCESS_QUERY_LIMITED, 0, pid);
@@ -431,11 +458,13 @@ pub mod platform {
             }
         }
 
-        /// 发现 ZCode 进程并分组（pid + 进程类型标签）：
-        /// (CLI 进程 = 会话组, 其余 zcode.exe = 桌面端组)。CLI = exe 名
-        /// zcode.exe（大小写不敏感）且命令行含 zcode.cjs；不含 zcode.cjs 的
-        /// zcode.exe = Electron 桌面端（主/渲染/GPU/工具进程——遥测等
-        /// 非会话流量的承载者）。两组都是 ZCode 自身进程，不含其他应用
+        /// Discovers ZCode processes and groups them (pid + process type
+        /// label): (CLI processes = session group, other zcode.exe = desktop
+        /// group). CLI = exe name zcode.exe (case-insensitive) with a command
+        /// line containing zcode.cjs; a zcode.exe without zcode.cjs is the
+        /// Electron desktop app (main/renderer/GPU/utility processes — the
+        /// carriers of telemetry and other non-session traffic). Both groups
+        /// are ZCode's own processes; no other apps are included
         pub fn zcode_pid_groups() -> (Vec<(u32, String)>, Vec<(u32, String)>) {
             let mut cli = Vec::new();
             let mut app = Vec::new();
@@ -471,7 +500,7 @@ pub mod platform {
                                         app.push((entry.process_id, label));
                                     }
                                 }
-                                None => {} // 命令行读不到（权限/竞态）不计入任何组
+                                None => {} // command line unreadable (permissions/race): counted in neither group
                             }
                         }
                         if Process32NextW(snap, &mut entry) == 0 {
@@ -485,9 +514,12 @@ pub mod platform {
         }
     }
 
-    /// macOS：getifaddrs 求和接口 ifi_obytes/ifi_ibytes（64 位，排除 lo0）。
-    /// 连接归属（按进程分组 TCP 连接）mac 侧未实现——收益集中在 Windows 桌面
-    /// 端（会话/桌面端进程的连接区分），mac 面板如实显示"连接明细仅 Windows"
+    /// macOS: getifaddrs sums interface ifi_obytes/ifi_ibytes (64-bit, lo0
+    /// excluded). Connection attribution (grouping TCP connections by
+    /// process) is not implemented on mac — the benefit is concentrated in
+    /// the Windows desktop app (separating session/desktop process
+    /// connections); the mac panel honestly shows "connection details are
+    /// Windows-only"
     #[cfg(target_os = "macos")]
     mod mac {
         use std::collections::{HashMap, HashSet};
@@ -499,7 +531,7 @@ pub mod platform {
             fn freeifaddrs(ptr: *mut IfAddrs);
         }
 
-        /// struct ifaddrs 镜像（flags 为 4 字节，其后指针需 8 字节对齐有填充）
+        /// struct ifaddrs mirror (flags is 4 bytes; padding follows so the pointers after it are 8-byte aligned)
         #[repr(C)]
         struct IfAddrs {
             next: *mut IfAddrs,
@@ -513,8 +545,9 @@ pub mod platform {
             spare: *mut c_void,
         }
 
-        /// struct if_data64（macOS 64 位）镜像：ifi_ibytes=64 / ifi_obytes=72
-        /// 对照 xnu SDK net/if.h，断言钉死；SDK 布局变化直接编译失败，禁删断言
+        /// struct if_data64 (macOS 64-bit) mirror: ifi_ibytes=64 / ifi_obytes=72
+        /// cross-checked against the xnu SDK net/if.h and pinned by asserts;
+        /// an SDK layout change fails the build outright — do not delete the asserts
         #[repr(C)]
         struct IfData64 {
             ifi_type: u8,
@@ -542,12 +575,14 @@ pub mod platform {
             assert!(std::mem::offset_of!(IfData64, ifi_obytes) == 72);
         };
 
-        /// 接口计数器回绕模数：ifi_*bytes 为 64 位，实际不回绕（0 = 裸差分）
+        /// Interface counter wraparound modulus: ifi_*bytes are 64-bit and never wrap in practice (0 = plain delta)
         pub const NET_COUNTER_WRAP: u64 = 0;
 
-        /// 全部非回环接口的计数行：(接口名, 累计上传, 累计下载)。
-        /// getifaddrs 对每接口按地址族返回多行，必须按接口名去重
-        /// （否则字节翻倍）；排除回环 lo0
+        /// Counter rows of all non-loopback interfaces: (interface name,
+        /// total uploaded, total downloaded). getifaddrs returns multiple
+        /// rows per interface (one per address family), so they must be
+        /// deduplicated by interface name (otherwise bytes double);
+        /// loopback lo0 excluded
         pub fn net_ifaces() -> Option<Vec<(String, u64, u64)>> {
             unsafe {
                 let mut head: *mut IfAddrs = std::ptr::null_mut();
@@ -573,7 +608,7 @@ pub mod platform {
             }
         }
 
-        /// 连接归属仅 Windows 实现；mac 返回 None（面板显示"不可用"）
+        /// Connection attribution is implemented on Windows only; mac returns None (the panel shows "unavailable")
         pub fn zcode_conns(
             _cli_pids: &HashMap<u32, String>,
             _app_pids: &HashMap<u32, String>,
@@ -586,7 +621,7 @@ pub mod platform {
         }
     }
 
-    /// 其他平台：接口计数与连接归属均不可用（面板显示"不支持"）
+    /// Other platforms: neither interface counters nor connection attribution is available (the panel shows "not supported")
     #[cfg(not(any(windows, target_os = "macos")))]
     mod stub {
         use std::collections::HashMap;
@@ -615,7 +650,7 @@ pub mod platform {
     pub use stub::*;
 }
 
-// ============ 主状态机 ============
+// ============ Main state machine ============
 
 fn local_ymd() -> (i32, u32, u32) {
     let n = Local::now();
@@ -631,18 +666,20 @@ fn net_file() -> Option<std::path::PathBuf> {
 }
 
 pub struct NetIo {
-    /// (时刻 ms, 解回绕后的整机累计上传, 累计下载)——单调递增，
-    /// 速度窗口差分可直接相减
+    /// (time ms, dewrapped system-wide cumulative upload, cumulative
+    /// download) — monotonically increasing, so the speed window can
+    /// subtract samples directly
     ring: VecDeque<(i64, u64, u64)>,
-    /// 上一拍各接口计数快照（逐接口差分：各接口回绕时机不同，
-    /// 先求和再差分在任一接口回绕后就会错）
+    /// Previous-tick snapshot of each interface's counters (per-interface
+    /// deltas: each interface wraps at a different time, and summing first
+    /// then differencing goes wrong as soon as any interface wraps)
     ifaces: HashMap<String, (u64, u64)>,
     acc_up: u64,
     acc_down: u64,
     today_ymd: (i32, u32, u32),
     up_today: u64,
     down_today: u64,
-    /// pid → 进程类型标签（"CLI 会话进程"/"主进程"/"渲染进程"/…）
+    /// pid -> process type label ("CLI session process"/"main process"/"renderer process"/...)
     cli_pids: HashMap<u32, String>,
     app_pids: HashMap<u32, String>,
     proc_refresh: Option<Instant>,
@@ -670,17 +707,17 @@ impl NetIo {
         io
     }
 
-    /// 恢复当日累计
+    /// Restore the daily totals
     fn load_persisted(&mut self) {
         let Some(path) = net_file() else { return };
         let Ok(raw) = std::fs::read_to_string(path) else { return };
         let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) else {
-            eprintln!("[zcode-speed-panel] net 累计文件损坏，从零起算");
+            eprintln!("[zcode-speed-panel] net totals file corrupted; starting from zero");
             return;
         };
         let day = v.get("day").and_then(|x| x.as_str()).unwrap_or("");
         if day != ymd_str(self.today_ymd) {
-            return; // 昨天的累计：跨天自然清零
+            return; // yesterday's totals: cleared naturally on day rollover
         }
         self.up_today = v.get("up").and_then(|x| x.as_u64()).unwrap_or(0);
         self.down_today = v.get("down").and_then(|x| x.as_u64()).unwrap_or(0);
@@ -700,20 +737,20 @@ impl NetIo {
                 "down": self.down_today,
             });
             if let Err(e) = std::fs::write(&path, json.to_string()) {
-                eprintln!("[zcode-speed-panel] net 累计落盘失败: {e}");
+                eprintln!("[zcode-speed-panel] failed to persist net totals: {e}");
             }
         }
     }
 
-    /// 退出前强制落盘（save_all 调用）
+    /// Force a disk save before exit (called by save_all)
     pub fn save_forced(&mut self) {
         self.dirty = true;
         self.save(true);
     }
 
-    /// 每拍调用（poller ~700ms）
+    /// Called every tick (poller ~700ms)
     pub fn tick(&mut self, now_ms: i64) -> NetNow {
-        // 跨天清零（整机累计只算今天）
+        // Reset on day rollover (system-wide totals only count today)
         let ymd = local_ymd();
         if ymd != self.today_ymd {
             self.today_ymd = ymd;
@@ -722,8 +759,10 @@ impl NetIo {
             self.dirty = true;
         }
 
-        // 整机接口计数 → 逐接口差分（回绕修正见 wrap_delta）→ 环 + 当日累计。
-        // 环里存解回绕后的单调累计，速度窗口直接相减
+        // System-wide interface counters -> per-interface deltas (wraparound
+        // correction: see wrap_delta) -> ring + daily totals.
+        // The ring stores dewrapped monotonic totals; the speed window
+        // subtracts them directly
         let available;
         if let Some(rows) = platform::net_ifaces() {
             available = true;
@@ -750,8 +789,9 @@ impl NetIo {
             available = false;
         }
 
-        // 约 1s 滑窗差分速度（窗口内最早的样本 vs 最新；累计值单调，直接相减；
-        // 对齐任务管理器 ~1s 刷新的口径，读数更跳属预期）
+        // ~1s sliding-window delta speed (earliest sample in the window vs
+        // the latest; totals are monotonic, so subtract directly; aligned
+        // with Task Manager's ~1s refresh cadence — jumpier readings are expected)
         let (up_bps, down_bps) = {
             let r = &self.ring;
             match (r.front(), r.back()) {
@@ -769,7 +809,7 @@ impl NetIo {
             }
         };
 
-        // 进程分组刷新（连接表每拍枚举很便宜；进程+命令行扫描 5s 一次）
+        // Process-group refresh (enumerating the connection table every tick is cheap; the process + command line scan runs every 5s)
         let due = self.proc_refresh.map_or(true, |t| t.elapsed() > PROC_REFRESH_EVERY);
         if due {
             self.proc_refresh = Some(Instant::now());
@@ -778,8 +818,10 @@ impl NetIo {
             self.app_pids = app.into_iter().collect();
         }
 
-        // 连接归属（仅 Windows 实现返回 Some）：每条连接标注归属 pid，
-        // 组装 ConnStat 时带上进程类型标签（同进程可有多条连接）
+        // Connection attribution (only the Windows implementation returns
+        // Some): tag each connection with its owning pid, and attach the
+        // process type label when assembling ConnStat (one process can own
+        // several connections)
         let conns = platform::zcode_conns(&self.cli_pids, &self.app_pids);
         let conns_available = conns.is_some();
         let mut cli_conn_list: Vec<crate::metrics::ConnStat> = Vec::new();
@@ -814,47 +856,51 @@ impl NetIo {
     }
 }
 
-// ============ 测试 ============
+// ============ Tests ============
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn sess_est_scales_with_tokens() {
-        // 上传按未缓存提示计（缓存命中不重发），下载按输出 token × 400
+        // Upload counts uncached prompt tokens (cache hits are not resent); download = output tokens x 400
         let (up, down) = sess_bytes_est(1000, 2000);
         assert!((up as f64 - 5000.0).abs() < 1e-6);
         assert!((down as f64 - 800_000.0).abs() < 1e-6);
     }
 
-    /// 接口计数差分：32 位回绕取模得到正确增量；回退（重置）钳 0；
-    /// 巨大异常增量（≥2^31，索引复用/重置误判为回绕）也钳 0
+    /// Interface counter deltas: modulo on 32-bit wraparound yields the
+    /// correct delta; regressions (resets) clamp to 0;
+    /// huge anomalous deltas (>=2^31, index reuse/reset misread as wrap) also clamp to 0
     #[test]
     fn wrap_delta_handles_32bit_wrap_and_resets() {
         const W: u64 = 1 << 32;
-        // 正常增量
+        // normal delta
         assert_eq!(wrap_delta(500, 100, W), 400);
-        // 回绕：从 2^32−300 跨零点走到 196，真实增量 = 300 + 196
+        // wraparound: from 2^32-300 across zero to 196, real delta = 300 + 196
         assert_eq!(wrap_delta(196, 4_294_967_296 - 300, W), 496);
-        // mac（wrap=0）：计数器回退（重置）钳 0，不产生假流量
+        // mac (wrap=0): counter regression (reset) clamps to 0, no phantom traffic
         assert_eq!(wrap_delta(100, 500, 0), 0);
         assert_eq!(wrap_delta(900, 500, 0), 400);
-        // 计数器重置（百万级回退到小值）：按回绕解释会得到 ≥2^31 的假增量，钳 0。
-        // 注：回退幅度 <2^31 的重置与回绕在 32 位计数器下固有不可区分
+        // Counter reset (million-scale regression to a small value): reading
+        // it as wraparound would give a phantom delta >=2^31, so clamp to 0.
+        // Note: on 32-bit counters, resets regressing by <2^31 are inherently
+        // indistinguishable from wraparound
         assert_eq!(wrap_delta(1000, 1_000_000, W), 0);
     }
 
-    /// 进程类型标签（Windows 口径）：CLI 判定在 --type 之前——渲染进程
-    /// 命令行里不会出现 zcode.cjs，两类判定不冲突
+    /// Process type label (Windows methodology): the CLI check precedes the
+    /// --type checks — zcode.cjs never appears in a renderer's command line,
+    /// so the two checks do not conflict
     #[test]
     #[cfg(windows)]
     fn proc_label_by_command_line() {
         use crate::netio::platform::proc_label;
-        assert_eq!(proc_label(r#""C:\...\zcode.exe" "C:\...\zcode.cjs" app-server"#), "CLI 会话进程");
-        assert_eq!(proc_label(r#""C:\...\ZCode.exe" --type=renderer --field-trial-handle=x"#), "渲染进程");
-        assert_eq!(proc_label(r#""C:\...\ZCode.exe" --type=gpu-process"#), "GPU 进程");
-        assert_eq!(proc_label(r#""C:\...\ZCode.exe" --type=utility --utility-sub-type=net"#), "工具进程");
-        assert_eq!(proc_label(r#""C:\...\ZCode.exe" --type=crashpad-handler"#), "崩溃报告进程");
-        assert_eq!(proc_label(r#""C:\...\ZCode.exe" --js-flags=..."#), "主进程");
+        assert_eq!(proc_label(r#""C:\...\zcode.exe" "C:\...\zcode.cjs" app-server"#), "CLI session process");
+        assert_eq!(proc_label(r#""C:\...\ZCode.exe" --type=renderer --field-trial-handle=x"#), "renderer process");
+        assert_eq!(proc_label(r#""C:\...\ZCode.exe" --type=gpu-process"#), "GPU process");
+        assert_eq!(proc_label(r#""C:\...\ZCode.exe" --type=utility --utility-sub-type=net"#), "utility process");
+        assert_eq!(proc_label(r#""C:\...\ZCode.exe" --type=crashpad-handler"#), "crash reporter process");
+        assert_eq!(proc_label(r#""C:\...\ZCode.exe" --js-flags=..."#), "main process");
     }
 }
